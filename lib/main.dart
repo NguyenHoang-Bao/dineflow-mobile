@@ -5,6 +5,7 @@ import 'app/app.dart';
 import 'app/app_navigator.dart';
 import 'app/routes.dart';
 import 'core/api/api_client.dart';
+import 'core/services/fcm_service.dart';
 import 'core/session/session_store.dart';
 import 'data/app_data.dart';
 import 'data/auth_repository.dart';
@@ -28,6 +29,11 @@ Future<void> main() async {
   if (user != null) {
     await AppData.load().timeout(const Duration(seconds: 6), onTimeout: () => null);
   }
+
+  // Khởi tạo Firebase Cloud Messaging (chạy ngầm, không chặn hiển thị UI)
+  FcmService.instance.init().then((_) {
+    if (user != null) FcmService.instance.syncTokenToBackend();
+  });
 
   runApp(DineFlowApp(initialRoute: user == null ? AppRoutes.login : AppRoutes.homeFor(user.role)));
 }

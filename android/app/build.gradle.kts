@@ -4,6 +4,11 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Tự động nhận diện và kích hoạt Firebase Google Services khi có file google-services.json
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.dineflow"
     compileSdk = flutter.compileSdkVersion

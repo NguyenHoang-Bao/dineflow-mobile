@@ -1,5 +1,6 @@
 import '../core/api/api_client.dart';
 import '../core/api/api_exception.dart';
+import '../core/services/fcm_service.dart';
 import '../core/session/session_store.dart';
 import '../models/user.dart';
 
@@ -119,6 +120,7 @@ class AuthRepository {
 
   Future<User> _startSession(Map<String, dynamic> data) async {
     await _session.save(data['token'] as String, data['user'] as Map<String, dynamic>);
+    FcmService.instance.syncTokenToBackend();
     return _session.user!;
   }
 }
