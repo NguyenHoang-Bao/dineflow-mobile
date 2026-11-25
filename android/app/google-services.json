@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1007568180071",
+    "project_id": "hoangbao-2ca11",
+    "storage_bucket": "hoangbao-2ca11.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1007568180071:android:62c9f7c148b9b5d0a255c2",
+        "android_client_info": {
+          "package_name": "com.example.dineflow"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBgJ9AaGK9UpnCUWqDK3e0E1F0MIfacHwY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
