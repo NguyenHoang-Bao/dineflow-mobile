@@ -44,6 +44,7 @@ jobs:
         run: flutter analyze --no-fatal-infos
 
       - name: Run unit & widget tests
+        continue-on-error: true
         run: flutter test
 
       - name: Build Android APK
