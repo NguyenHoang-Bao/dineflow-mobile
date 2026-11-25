@@ -65,7 +65,7 @@ class FcmService {
     if (_fcmToken == null || _fcmToken!.isEmpty) return;
 
     try {
-      await ApiClient.instance.post('/notifications/fcm-token', {
+      await ApiClient.instance.post('/notifications/fcm-token', body: {
         'token': _fcmToken,
       });
       dev.log('[FCM] Đã đồng bộ FCM Token lên server thành công.', name: 'FcmService');
