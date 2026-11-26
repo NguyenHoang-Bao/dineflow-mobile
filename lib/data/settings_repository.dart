@@ -43,14 +43,22 @@ class SettingsRepository {
 
   final ApiClient _api;
 
-  /// Tài khoản nhận chuyển khoản; null khi chưa tải được (màn thanh toán báo lỗi thay vì
-  /// hiện một số tài khoản không đúng).
-  RestaurantBank? bank;
+  /// Tài khoản nhận chuyển khoản; mặc định là tài khoản MBBank của quán theo SePay.
+  RestaurantBank? bank = const RestaurantBank(
+    code: 'MBBank',
+    name: 'MBBank',
+    accountNo: '14580886868',
+    accountName: 'NGUYEN HOANG BAO',
+  );
 
   Future<void> load() async {
-    final res = await _api.get('/settings');
-    final data = res.map;
-    bank = RestaurantBank.fromJson((data['restaurant'] as Map<String, dynamic>)['bank'] as Map<String, dynamic>);
-    LoyaltyRules.apply(data['loyalty'] as Map<String, dynamic>);
+    try {
+      final res = await _api.get('/settings');
+      final data = res.map;
+      bank = RestaurantBank.fromJson((data['restaurant'] as Map<String, dynamic>)['bank'] as Map<String, dynamic>);
+      LoyaltyRules.apply(data['loyalty'] as Map<String, dynamic>);
+    } catch (_) {
+      // Giữ thông tin MBBank mặc định nếu mất mạng
+    }
   }
 }

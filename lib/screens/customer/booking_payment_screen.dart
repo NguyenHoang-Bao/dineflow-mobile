@@ -7,6 +7,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/mock_data.dart';
+import '../../data/notification_repository.dart';
 import '../../data/settings_repository.dart';
 import '../../models/reservation.dart';
 
@@ -63,8 +64,15 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Xác nhận thanh toán SePay thành công!'),
+                content: Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: Colors.white),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Thanh toán SePay thành công! Đang xác nhận đặt bàn...')),
+                  ],
+                ),
                 backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
               ),
             );
             _complete();
@@ -103,6 +111,9 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
         payment: total > 0 ? PaymentMethod.qr : null,
       );
 
+      // Cập nhật lại số lượng thông báo chưa đọc cho khách
+      NotificationRepository.instance.refreshUnreadCount();
+
       navigator.pushAndRemoveUntil(
         MaterialPageRoute(
           settings: const RouteSettings(name: AppRoutes.customerBookingConfirmation),
@@ -110,12 +121,33 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
             reservation: confirmed,
             preOrderCount: itemCount,
             paidAmount: total,
-            paymentLabel: total > 0 ? 'Chuyển khoản ngân hàng' : null,
+            paymentLabel: total > 0 ? 'Chuyển khoản SePay' : null,
           ),
         ),
         (route) => route.settings.name == AppRoutes.customerHome || route.isFirst,
       );
     } on ApiException catch (e) {
+      if (e.message.contains('xác nhận') || e.message.contains('thành công')) {
+        NotificationRepository.instance.refreshUnreadCount();
+        checkout.preOrder.clear();
+        checkout.release();
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: AppRoutes.customerBookingConfirmation),
+            builder: (_) => BookingConfirmationScreen(
+              reservation: reservation.copyWith(
+                depositAmount: total,
+                depositPaidAt: DateTime.now(),
+              ),
+              preOrderCount: itemCount,
+              paidAmount: total,
+              paymentLabel: 'Chuyển khoản SePay',
+            ),
+          ),
+          (route) => route.settings.name == AppRoutes.customerHome || route.isFirst,
+        );
+        return;
+      }
       say(e.message);
       await AppData.refreshReservations(force: true);
       final current = MockData.reservations

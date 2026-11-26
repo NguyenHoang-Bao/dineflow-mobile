@@ -61,6 +61,33 @@ class BookingConfirmationScreen extends StatelessWidget {
                               color: AppColors.textPrimary,
                               letterSpacing: -0.5),
                         )),
+                        const SizedBox(height: 6),
+                        step(Container(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: Colors.green.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.green.withValues(alpha: 0.3)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.notifications_active_rounded, color: Colors.green, size: 18),
+                              SizedBox(width: 8),
+                              Flexible(
+                                child: Text(
+                                  'Đã gửi thông báo xác nhận đặt bàn đến bạn',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )),
                         const SizedBox(height: 10),
                         step(Column(
                           children: [
