@@ -526,7 +526,7 @@ class _CashierQrPanel extends StatelessWidget {
         message: 'Đăng nhập lại để tải tài khoản ngân hàng của nhà hàng, hoặc chọn thu tiền mặt / thẻ.',
       );
     }
-    final noteText = 'Thanh toan $orderCode DineFlow';
+    final noteText = orderCode;
     final qrUrl = bank.qrImageUrl(amount, noteText);
 
     return Container(

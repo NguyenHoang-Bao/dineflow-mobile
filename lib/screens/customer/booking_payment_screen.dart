@@ -90,6 +90,54 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
     super.dispose();
   }
 
+  Future<void> _checkPaymentStatus() async {
+    final checkout = BookingCheckout.instance;
+    final reservation = checkout.reservation;
+    if (reservation == null || !mounted || _submitting) return;
+
+    try {
+      final res = await ApiClient.instance.get('/payment/check-status/${reservation.code}');
+      final isPaid = (res.data as Map?)?['is_paid'] == true;
+      if (isPaid) {
+        _sepayPollingTimer?.cancel();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Thanh toán SePay thành công! Đang chuyển trang...')),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          _complete();
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Hệ thống chưa nhận được tiền từ ngân hàng. Vui lòng kiểm tra lại sau giây lát.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể kiểm tra trạng thái lúc này. Vui lòng thử lại.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _complete() async {
     final checkout = BookingCheckout.instance;
     final reservation = checkout.reservation;
@@ -364,17 +412,85 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
               ),
             ),
 
-            // ── Nút xác nhận ────────────────────────────────────────────
+            // ── Trạng thái thanh toán tự động / Nút xác nhận ─────────────────
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
-              child: AppButton(
-                key: const ValueKey('booking-pay'),
-                label: needsPayment
-                    ? 'Xác nhận đã chuyển khoản'
-                    : 'Xác nhận giữ bàn',
-                isLoading: _submitting,
-                onPressed: _complete,
-              ),
+              child: needsPayment
+                  ? Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                'Đang chờ chuyển khoản...',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Vui lòng chuyển khoản đúng nội dung "${reservation.code}".\nNgay khi nhận được tiền, hệ thống SePay sẽ tự động xác nhận và chuyển sang màn hình thành công.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              color: AppColors.textSecondary,
+                              height: 1.4,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          InkWell(
+                            onTap: _checkPaymentStatus,
+                            borderRadius: BorderRadius.circular(8),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.refresh_rounded, size: 16, color: AppColors.primary),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Kiểm tra trạng thái ngay',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.primary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : AppButton(
+                      key: const ValueKey('booking-pay'),
+                      label: 'Xác nhận giữ bàn',
+                      isLoading: _submitting,
+                      onPressed: _complete,
+                    ),
             ),
           ],
         ),
@@ -404,7 +520,7 @@ class _BankQrSection extends StatelessWidget {
         message: 'Kiểm tra kết nối mạng rồi đăng nhập lại để tải thông tin tài khoản của nhà hàng.',
       );
     }
-    final noteText = 'Dat ban $refId DineFlow';
+    final noteText = refId;
     final qrUrl = bank.qrImageUrl(amount, noteText);
 
     return Container(
