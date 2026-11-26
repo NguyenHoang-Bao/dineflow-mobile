@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/mock_data.dart';
@@ -38,14 +39,46 @@ class BookingPaymentScreen extends StatefulWidget {
 class _BookingPaymentScreenState extends State<BookingPaymentScreen>
     with BookingHoldTimer {
   bool _submitting = false;
+  Timer? _sepayPollingTimer;
 
   @override
   void initState() {
     super.initState();
+    _startSepayPolling();
+  }
+
+  void _startSepayPolling() {
+    final checkout = BookingCheckout.instance;
+    final reservation = checkout.reservation;
+    if (reservation == null) return;
+
+    _sepayPollingTimer?.cancel();
+    _sepayPollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (!mounted || _submitting) return;
+      try {
+        final res = await ApiClient.instance.get('/payment/check-status/${reservation.code}');
+        final isPaid = (res.data as Map?)?['is_paid'] == true;
+        if (isPaid) {
+          timer.cancel();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Xác nhận thanh toán SePay thành công!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            _complete();
+          }
+        }
+      } catch (_) {
+        // Bỏ qua lỗi polling tạm thời (mất mạng chập chờn)
+      }
+    });
   }
 
   @override
   void dispose() {
+    _sepayPollingTimer?.cancel();
     super.dispose();
   }
 

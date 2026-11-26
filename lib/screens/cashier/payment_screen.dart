@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../app/routes.dart';
+import '../../core/api/api_client.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/invoice_repository.dart';
@@ -51,6 +52,51 @@ class _PaymentScreenState extends State<PaymentScreen> {
   PaymentMethod _method = PaymentMethod.cash;
   bool _paying = false;
   bool _cancelling = false;
+  Timer? _sepayPollingTimer;
+
+  @override
+  void dispose() {
+    _sepayPollingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _onMethodChanged(PaymentMethod method, Order order, Promotion? promotion) {
+    if (_method == method) return;
+    setState(() => _method = method);
+    if (method == PaymentMethod.qr) {
+      _startSepayPolling(order, promotion);
+    } else {
+      _sepayPollingTimer?.cancel();
+    }
+  }
+
+  void _startSepayPolling(Order order, Promotion? promotion) {
+    _sepayPollingTimer?.cancel();
+    _sepayPollingTimer = Timer.periodic(const Duration(seconds: 3), (timer) async {
+      if (!mounted || _paying || _method != PaymentMethod.qr) {
+        timer.cancel();
+        return;
+      }
+      try {
+        final res = await ApiClient.instance.get('/payment/check-status/${order.code}');
+        final isPaid = (res.data as Map?)?['is_paid'] == true;
+        if (isPaid) {
+          timer.cancel();
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Khách hàng đã chuyển khoản SePay thành công!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+            _pay(order, promotion: promotion);
+          }
+        }
+      } catch (_) {
+        // Bỏ qua lỗi polling tạm thời
+      }
+    });
+  }
 
   /// Khách thành viên được gắn vào đơn (sau khi quét QR hoặc đặt qua app).
   Customer? _member;
@@ -344,7 +390,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         child: _MethodTile(
                           method: method,
                           selected: _method == method,
-                          onTap: () => setState(() => _method = method),
+                          onTap: () => _onMethodChanged(method, order, _promotion),
                         ),
                       ),
                     ],

@@ -2,8 +2,8 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// URL máy chủ Production trên AWS EC2
-  static const String _productionUrl = 'http://13.212.78.140:8000/api';
+  /// URL máy chủ Production trên AWS EC2 với HTTPS & SSL tự động
+  static const String _productionUrl = 'https://dineflow.13-212-78-140.sslip.io/api';
 
   /// Cho phép ghi đè khi cần qua lệnh build: flutter run --dart-define=API_BASE_URL=...
   static const String _override = String.fromEnvironment('API_BASE_URL');
@@ -27,7 +27,14 @@ class ApiConfig {
     ).toString();
   }
 
-  static const _localHosts = {'localhost', '127.0.0.1', '10.0.2.2', '0.0.0.0', '13.212.78.140'};
+  static const _localHosts = {
+    'localhost',
+    '127.0.0.1',
+    '10.0.2.2',
+    '0.0.0.0',
+    '13.212.78.140',
+    'dineflow.13-212-78-140.sslip.io'
+  };
 
   static const Duration timeout = Duration(seconds: 15);
 }
