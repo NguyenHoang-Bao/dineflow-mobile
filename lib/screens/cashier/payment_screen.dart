@@ -78,24 +78,78 @@ class _PaymentScreenState extends State<PaymentScreen> {
         return;
       }
       try {
-        final res = await ApiClient.instance.get('/payment/check-status/${order.code}');
+        final code = order.code ?? order.displayCode;
+        final res = await ApiClient.instance.get('/payment/check-status/$code');
         final isPaid = (res.data as Map?)?['is_paid'] == true;
         if (isPaid) {
           timer.cancel();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Khách hàng đã chuyển khoản SePay thành công!'),
+                content: Row(
+                  children: [
+                    Icon(Icons.check_circle_rounded, color: Colors.white),
+                    SizedBox(width: 8),
+                    Expanded(child: Text('Khách hàng đã chuyển khoản SePay thành công! Đang xuất hóa đơn...')),
+                  ],
+                ),
                 backgroundColor: Colors.green,
+                duration: Duration(seconds: 3),
               ),
             );
-            _pay(order, promotion: promotion);
+            _pay(order, promotion: _promotion ?? promotion);
           }
         }
       } catch (_) {
         // Bỏ qua lỗi polling tạm thời
       }
     });
+  }
+
+  Future<void> _checkPaymentStatus(Order order) async {
+    if (!mounted || _paying) return;
+    try {
+      final code = order.code ?? order.displayCode;
+      final res = await ApiClient.instance.get('/payment/check-status/$code');
+      final isPaid = (res.data as Map?)?['is_paid'] == true;
+      if (isPaid) {
+        _sepayPollingTimer?.cancel();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Row(
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Colors.white),
+                  SizedBox(width: 8),
+                  Expanded(child: Text('Khách hàng đã chuyển khoản SePay thành công! Đang xuất hóa đơn...')),
+                ],
+              ),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+          _pay(order, promotion: _promotion);
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Hệ thống chưa nhận được tiền từ ngân hàng. Vui lòng kiểm tra lại sau giây lát.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Không thể kiểm tra trạng thái lúc này. Vui lòng thử lại.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    }
   }
 
   /// Khách thành viên được gắn vào đơn (sau khi quét QR hoặc đặt qua app).
@@ -400,7 +454,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
                 // ── Panel QR hoặc Thẻ (hiện khi chọn tương ứng) ─────────
                 if (_method == PaymentMethod.qr)
-                  appear(_CashierQrPanel(amount: total, orderCode: order.displayCode)),
+                  appear(_CashierQrPanel(
+                    amount: total,
+                    orderCode: order.displayCode,
+                    onCheckStatus: () => _checkPaymentStatus(order),
+                  )),
                 if (_method == PaymentMethod.card)
                   appear(const _CardPaymentPanel()),
                 const SizedBox(height: 24),
@@ -413,11 +471,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               child: Column(
                 children: [
-                  AppButton(
-                    label: 'Xác nhận thanh toán',
-                    isLoading: _paying,
-                    onPressed: _cancelling ? null : () => _pay(order, promotion: effectivePromotion),
-                  ),
+                  if (_method == PaymentMethod.qr) ...[
+                    AppButton(
+                      label: 'Xác nhận thủ công (nếu đã nhận tiền)',
+                      variant: AppButtonVariant.outlined,
+                      isLoading: _paying,
+                      onPressed: _cancelling ? null : () => _pay(order, promotion: effectivePromotion),
+                    ),
+                  ] else ...[
+                    AppButton(
+                      label: 'Xác nhận thanh toán',
+                      isLoading: _paying,
+                      onPressed: _cancelling ? null : () => _pay(order, promotion: effectivePromotion),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   AppButton(
                     label: 'Huỷ đơn',
@@ -513,8 +580,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
 class _CashierQrPanel extends StatelessWidget {
   final double amount;
   final String orderCode;
+  final VoidCallback? onCheckStatus;
 
-  const _CashierQrPanel({required this.amount, required this.orderCode});
+  const _CashierQrPanel({
+    required this.amount,
+    required this.orderCode,
+    this.onCheckStatus,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -609,23 +681,74 @@ class _CashierQrPanel extends StatelessWidget {
           _InfoRowQ(label: 'Nội dung', value: noteText),
           const SizedBox(height: 14),
           Container(
-            padding: const EdgeInsets.all(10),
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: AppColors.primaryLight,
-              borderRadius: BorderRadius.circular(10),
+              color: AppColors.primary.withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
             ),
-            child: Row(children: [
-              Icon(Icons.info_outline_rounded, size: 16, color: AppColors.primary),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Yêu cầu khách quét mã QR bằng app ngân hàng. '
-                  'Nhập đúng nội dung chuyển khoản để hệ thống xác nhận.',
-                  style: TextStyle(
-                      fontSize: 12, color: AppColors.textPrimary, height: 1.4),
+            child: Column(
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.2,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Đang chờ khách chuyển khoản SePay...',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.primary,
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ]),
+                const SizedBox(height: 6),
+                Text(
+                  'Hệ thống SePay IPN sẽ tự động xác nhận và xuất hóa đơn ngay khi nhận tiền vào tài khoản.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                    height: 1.35,
+                  ),
+                ),
+                if (onCheckStatus != null) ...[
+                  const SizedBox(height: 8),
+                  InkWell(
+                    onTap: onCheckStatus,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.refresh_rounded, size: 16, color: AppColors.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Kiểm tra trạng thái ngay',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
         ],
       ),
