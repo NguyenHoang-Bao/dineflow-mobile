@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/table_model.dart';
 import '../theme/app_colors.dart';
 import '../theme/status_visuals.dart';
+import '../utils/formatters.dart';
 import 'app_animations.dart';
 
 /// Card hiển thị một bàn trong sơ đồ bàn.
@@ -50,10 +51,14 @@ class TableCard extends StatelessWidget {
                     style:
                         TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textPrimary)),
                 const SizedBox(height: 2),
-                Text('${table.capacity} khách',
-                    maxLines: 1,
-                    softWrap: false,
-                    style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary)),
+                Text(
+                  table.depositAmount > 0
+                      ? '${table.capacity} khách · Cọc ${AppFormatters.compactCurrency(table.depositAmount)}'
+                      : '${table.capacity} khách',
+                  maxLines: 1,
+                  softWrap: false,
+                  style: TextStyle(fontSize: 10.5, color: AppColors.textSecondary),
+                ),
                 const SizedBox(height: 4),
                 Text(
                   table.status.label,

@@ -287,11 +287,16 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
     }
     if (!mounted) return;
 
-    MockData.upsertReservation(reservation);
+    final selectedDeposit = _selectedTables.fold(0.0, (s, t) => s + t.depositAmount);
+    final effectiveReservation = (reservation.depositAmount == null || reservation.depositAmount == 0) && selectedDeposit > 0
+        ? reservation.copyWith(depositAmount: selectedDeposit)
+        : reservation;
+
+    MockData.upsertReservation(effectiveReservation);
 
     // Bước 1 xong: giữ bàn và bắt đầu đếm thời gian hoàn tất 3 bước,
     // rồi sang bước 2 "Đặt món trước".
-    BookingCheckout.instance.start(reservation);
+    BookingCheckout.instance.start(effectiveReservation, tableDeposit: selectedDeposit);
 
     final navigator = Navigator.of(context);
     if (_isStandalone) {
@@ -865,6 +870,7 @@ class _SeatSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalSeats = selectedTables.fold(0, (s, t) => s + t.capacity);
+    final totalDeposit = selectedTables.fold(0.0, (s, t) => s + t.depositAmount);
     final done = selectedTables.isNotEmpty && missingSeats == 0;
     final noRoom = areaCapacity < guestCount;
 
@@ -882,7 +888,8 @@ class _SeatSummary extends StatelessWidget {
       bg = AppColors.successBg;
       border = AppColors.success;
       icon = Icons.check_circle_outline_rounded;
-      message = 'Đã chọn ${selectedTables.length} bàn · $totalSeats chỗ cho $guestCount khách ✓';
+      final depositText = totalDeposit > 0 ? ' · Cọc: ${AppFormatters.currency(totalDeposit)}' : '';
+      message = 'Đã chọn ${selectedTables.length} bàn · $totalSeats chỗ cho $guestCount khách$depositText ✓';
     } else if (selectedTables.isEmpty) {
       bg = AppColors.surfaceAlt;
       border = AppColors.border;

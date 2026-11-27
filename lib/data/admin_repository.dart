@@ -92,12 +92,12 @@ class AdminRepository {
     final res = await _api.get('/admin/tables', query: {if (area != null) 'area': area});
     return [for (final t in res.list) TableModel.fromApiJson(t)];
   }
-  Future<TableModel> createTable({required String number, required String area, required int capacity}) async {
-    final res = await _api.post('/admin/tables', body: {'number': number, 'area': area, 'capacity': capacity});
+  Future<TableModel> createTable({required String number, required String area, required int capacity, double depositAmount = 0.0}) async {
+    final res = await _api.post('/admin/tables', body: {'number': number, 'area': area, 'capacity': capacity, 'deposit_amount': depositAmount});
     return TableModel.fromApiJson(res.map);
   }
-  Future<TableModel> updateTable(String id, {String? number, String? area, int? capacity}) async {
-    final res = await _api.put('/admin/tables/$id', body: {if (number != null) 'number': number, if (area != null) 'area': area, if (capacity != null) 'capacity': capacity});
+  Future<TableModel> updateTable(String id, {String? number, String? area, int? capacity, double? depositAmount}) async {
+    final res = await _api.put('/admin/tables/$id', body: {if (number != null) 'number': number, if (area != null) 'area': area, if (capacity != null) 'capacity': capacity, if (depositAmount != null) 'deposit_amount': depositAmount});
     return TableModel.fromApiJson(res.map);
   }
   Future<TableModel> toggleTableLocked(String id) async {

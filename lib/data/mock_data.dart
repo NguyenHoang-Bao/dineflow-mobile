@@ -134,7 +134,7 @@ class MockData {
 
   // ------------------------- TABLES -------------------------
   static List<TableModel> tables = [
-    const TableModel(id: 't1', number: 'Bàn 1', area: 'Tầng 1', capacity: 4, status: TableStatus.empty),
+    const TableModel(id: 't1', number: 'Bàn 1', area: 'Tầng 1', capacity: 4, status: TableStatus.empty, depositAmount: 100000),
     TableModel(
         id: 't2',
         number: 'Bàn 2',
@@ -142,9 +142,10 @@ class MockData {
         capacity: 2,
         status: TableStatus.serving,
         servingSince: DateTime.now().subtract(const Duration(minutes: 35)),
-        currentOrderId: 'ord1'),
-    const TableModel(id: 't3', number: 'Bàn 3', area: 'Tầng 1', capacity: 6, status: TableStatus.reserved),
-    const TableModel(id: 't4', number: 'Bàn 4', area: 'Tầng 1', capacity: 4, status: TableStatus.empty),
+        currentOrderId: 'ord1',
+        depositAmount: 50000),
+    const TableModel(id: 't3', number: 'Bàn 3', area: 'Tầng 1', capacity: 6, status: TableStatus.reserved, depositAmount: 150000),
+    const TableModel(id: 't4', number: 'Bàn 4', area: 'Tầng 1', capacity: 4, status: TableStatus.empty, depositAmount: 100000),
     TableModel(
         id: 't5',
         number: 'Bàn 5',
@@ -152,9 +153,10 @@ class MockData {
         capacity: 2,
         status: TableStatus.serving,
         servingSince: DateTime.now().subtract(const Duration(minutes: 12)),
-        currentOrderId: 'ord2'),
-    const TableModel(id: 't6', number: 'Bàn 6', area: 'Tầng 1', capacity: 4, status: TableStatus.empty),
-    const TableModel(id: 't7', number: 'Bàn 7', area: 'Tầng 2', capacity: 4, status: TableStatus.empty),
+        currentOrderId: 'ord2',
+        depositAmount: 50000),
+    const TableModel(id: 't6', number: 'Bàn 6', area: 'Tầng 1', capacity: 4, status: TableStatus.empty, depositAmount: 100000),
+    const TableModel(id: 't7', number: 'Bàn 7', area: 'Tầng 2', capacity: 4, status: TableStatus.empty, depositAmount: 100000),
     TableModel(
         id: 't8',
         number: 'Bàn 8',
@@ -162,9 +164,10 @@ class MockData {
         capacity: 8,
         status: TableStatus.serving,
         servingSince: DateTime.now().subtract(const Duration(minutes: 50)),
-        currentOrderId: 'ord3'),
-    const TableModel(id: 't9', number: 'Bàn 9', area: 'Tầng 2', capacity: 2, status: TableStatus.reserved),
-    const TableModel(id: 't10', number: 'Bàn 10', area: 'Tầng 2', capacity: 4, status: TableStatus.empty),
+        currentOrderId: 'ord3',
+        depositAmount: 200000),
+    const TableModel(id: 't9', number: 'Bàn 9', area: 'Tầng 2', capacity: 2, status: TableStatus.reserved, depositAmount: 50000),
+    const TableModel(id: 't10', number: 'Bàn 10', area: 'Tầng 2', capacity: 4, status: TableStatus.empty, depositAmount: 100000),
   ];
 
   /// Các khu vực, theo thứ tự xuất hiện trong danh sách bàn.

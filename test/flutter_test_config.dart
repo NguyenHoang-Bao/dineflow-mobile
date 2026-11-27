@@ -73,6 +73,9 @@ class _OfflineReservations extends ReservationRepository {
   Future<List<Reservation>> fetchMine() async => MockData.reservations;
 
   @override
+  Future<List<Reservation>> fetchForDate(DateTime date) async => MockData.reservations;
+
+  @override
   Future<Reservation> hold({
     required List<TableModel> tables,
     required DateTime dateTime,
@@ -80,6 +83,7 @@ class _OfflineReservations extends ReservationRepository {
     String? note,
   }) async {
     final sequence = MockData.reservations.length + 1;
+    final tableDeposit = tables.fold(0.0, (sum, t) => sum + t.depositAmount);
     return Reservation(
       id: 'r${DateTime.now().microsecondsSinceEpoch}',
       code: 'DF${(1000 + sequence * 137) % 9000 + 1000}',
@@ -91,6 +95,7 @@ class _OfflineReservations extends ReservationRepository {
       dateTime: dateTime,
       guestCount: guestCount,
       note: note,
+      depositAmount: tableDeposit > 0 ? tableDeposit : null,
       holdExpiresAt: DateTime.now().add(const Duration(minutes: 10)),
     );
   }
@@ -99,9 +104,13 @@ class _OfflineReservations extends ReservationRepository {
   Future<Reservation> confirm(String reservationId,
       {List<OrderItem> items = const [], PaymentMethod? payment}) async {
     final current = _current(reservationId);
+    final foodDeposit = (items.fold(0.0, (sum, i) => sum + i.total) * 0.5 / 100).ceilToDouble() * 100;
+    final totalDeposit = (current.depositAmount ?? 0.0) + foodDeposit;
     return current.copyWith(
       preOrderItems: items.isEmpty ? null : items,
       preOrderPayment: items.isEmpty ? null : payment,
+      depositAmount: totalDeposit > 0 ? totalDeposit : current.depositAmount,
+      depositPaidAt: totalDeposit > 0 ? DateTime.now() : null,
       clearHold: true,
     );
   }
@@ -168,6 +177,10 @@ class _OfflineTables extends TableRepository {
 
   @override
   Future<List<TableModel>> fetch() async => MockData.tables;
+
+  @override
+  Future<List<TableModel>> fetchAvailability(DateTime dateTime) async =>
+      [for (final t in MockData.tables) t.copyWith(available: t.status == TableStatus.empty)];
 }
 
 /// Thực đơn giả: trả đúng thực đơn mẫu đã nạp từ assets (không gọi mạng),
@@ -193,12 +206,65 @@ MockClient _fakeBackend() {
   };
 
   return MockClient((request) async {
+    final path = request.url.path;
+    dynamic data;
+    if (path.endsWith('/me')) {
+      data = user;
+    } else if (path.contains('/toggle-status')) {
+      data = {
+        'id': 2,
+        'name': 'Trần Thị Order',
+        'email': 'order@dineflow.vn',
+        'phone': '0901000002',
+        'role': 'order_staff',
+        'status': 'locked',
+      };
+    } else if (path.endsWith('/tables') || path.endsWith('/tables/available')) {
+      data = [
+        for (final t in MockData.tables)
+          {
+            'id': t.id,
+            'number': t.number,
+            'area': t.area,
+            'capacity': t.capacity,
+            'status': t.status.name,
+            'is_locked': t.isLocked,
+            'is_active': t.isActive,
+            'deposit_amount': t.depositAmount,
+            'available': t.status == TableStatus.empty,
+          }
+      ];
+    } else if (path.endsWith('/users')) {
+      data = [
+        for (final u in MockData.users)
+          {
+            'id': u.id,
+            'name': u.name,
+            'email': u.email,
+            'phone': u.phone,
+            'role': u.role.name,
+            'status': u.status.name,
+          }
+      ];
+    } else if (path.endsWith('/reservations') || path.endsWith('/reservations/my')) {
+      data = [];
+    } else if (path.endsWith('/foods')) {
+      data = [];
+    } else if (path.endsWith('/categories')) {
+      data = [];
+    } else if (path.endsWith('/promotions')) {
+      data = [];
+    } else if (path.endsWith('/invoices')) {
+      data = [];
+    } else if (path.endsWith('/orders')) {
+      data = [];
+    } else {
+      data = {'token': 'test-token', 'token_type': 'Bearer', 'user': user};
+    }
     final body = jsonEncode({
       'status': 'success',
       'message': 'OK',
-      'data': request.url.path.endsWith('/me')
-          ? user
-          : {'token': 'test-token', 'token_type': 'Bearer', 'user': user},
+      'data': data,
     });
     return http.Response.bytes(utf8.encode(body), 200, headers: {'content-type': 'application/json'});
   });

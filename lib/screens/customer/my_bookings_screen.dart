@@ -66,9 +66,11 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> with SingleTickerPr
   void _onReservationsChanged() => setState(() {});
 
   Future<void> _confirmCancel(Reservation reservation) async {
-    // Tiền cọc không hoàn lại khi huỷ → nói rõ trước khi khách xác nhận.
-    final depositNote = reservation.isDepositPaid
-        ? '\n\nTiền cọc ${AppFormatters.currency(reservation.depositAmount ?? 0)} sẽ KHÔNG được hoàn lại.'
+    // Hủy đặt bàn mất cọc 100%, quán không hoàn lại
+    final hasDeposit = (reservation.depositAmount ?? 0) > 0 && reservation.isDepositPaid;
+    final depositNote = hasDeposit
+        ? '\n\n⚠️ CẢNH BÁO: Lượt đặt này đã cọc ${AppFormatters.currency(reservation.depositAmount!)}. '
+            'Theo quy định của nhà hàng, khi huỷ bạn sẽ MẤT TOÀN BỘ TIỀN CỌC (KHÔNG HOÀN LẠI dưới mọi hình thức).'
         : '';
     final confirmed = await showDialog<bool>(
       context: context,
@@ -80,7 +82,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> with SingleTickerPr
           TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Không')),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: Text('Huỷ đặt bàn', style: TextStyle(color: AppColors.error)),
+            child: Text(hasDeposit ? 'Chấp nhận mất cọc & Huỷ' : 'Huỷ đặt bàn',
+                style: TextStyle(color: AppColors.error, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -93,8 +96,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> with SingleTickerPr
       messenger
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(
-            content: Text(reservation.isDepositPaid
-                ? 'Đã huỷ đặt bàn. Tiền cọc không được hoàn lại.'
+            content: Text(hasDeposit
+                ? 'Đã huỷ đặt bàn. Toàn bộ tiền cọc ${AppFormatters.currency(reservation.depositAmount!)} không được hoàn lại.'
                 : 'Đã huỷ đặt bàn')));
     } on ApiException catch (e) {
       messenger
@@ -370,17 +373,46 @@ class _PreOrderSection extends StatelessWidget {
             // Đã cọc: hiện số tiền cọc và phần còn lại trả khi đến quán (thu ngân trừ cọc vào hóa đơn)
             if (reservation.isDepositPaid) ...[
               const SizedBox(height: 4),
-              _MoneyRow(label: 'Đã cọc', value: -(reservation.depositAmount ?? 0)),
-              const SizedBox(height: 4),
               _MoneyRow(
-                label: 'Còn lại trả tại quán',
-                value: (reservation.preOrderTotal - (reservation.depositAmount ?? 0)).clamp(0, double.infinity).toDouble(),
-                bold: true,
+                label: reservation.status == ReservationStatus.cancelled ? 'Tiền cọc bị mất (đã huỷ)' : 'Đã cọc',
+                value: -(reservation.depositAmount ?? 0),
               ),
+              if (reservation.status != ReservationStatus.cancelled) ...[
+                const SizedBox(height: 4),
+                _MoneyRow(
+                  label: 'Còn lại trả tại quán',
+                  value: (reservation.preOrderTotal - (reservation.depositAmount ?? 0)).clamp(0, double.infinity).toDouble(),
+                  bold: true,
+                ),
+              ] else ...[
+                const SizedBox(height: 4),
+                Text('Huỷ đặt bàn không hoàn lại cọc theo quy định của nhà hàng.',
+                    style: TextStyle(fontSize: 12, color: AppColors.error, fontWeight: FontWeight.w600)),
+              ],
             ] else ...[
               const SizedBox(height: 4),
               Text('Chưa cọc · Trả tại quán',
                   style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+            ],
+          ] else ...[
+            if (reservation.isDepositPaid && (reservation.depositAmount ?? 0) > 0) ...[
+              const SizedBox(height: 8),
+              _MoneyRow(
+                label: reservation.status == ReservationStatus.cancelled ? 'Tiền cọc bị mất (đã huỷ)' : 'Đã cọc bàn',
+                value: -(reservation.depositAmount ?? 0),
+                bold: true,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                reservation.status == ReservationStatus.cancelled
+                    ? 'Huỷ đặt bàn không hoàn lại cọc theo quy định của nhà hàng.'
+                    : 'Tiền cọc sẽ được trừ trực tiếp vào hóa đơn khi bạn đến ăn.',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: reservation.status == ReservationStatus.cancelled ? AppColors.error : AppColors.primaryDark,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ],
           if (upcoming) ...[

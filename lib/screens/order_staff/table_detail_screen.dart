@@ -147,6 +147,30 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
                         ),
                       ],
                     )),
+                    if (order.hasDeposit) ...[
+                      const SizedBox(height: 8),
+                      appear(Row(
+                        children: [
+                          Text('Đã cọc bàn (Khấu trừ)',
+                              style: TextStyle(fontSize: 13, color: AppColors.success, fontWeight: FontWeight.w600)),
+                          const Spacer(),
+                          Text('-${AppFormatters.currency(order.depositAmount)}',
+                              style: TextStyle(fontSize: 13, color: AppColors.success, fontWeight: FontWeight.w700)),
+                        ],
+                      )),
+                      const SizedBox(height: 4),
+                      appear(Row(
+                        children: [
+                          Text('Cần thu khi tính tiền',
+                              style: TextStyle(fontSize: 13, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
+                          const Spacer(),
+                          Text(
+                            AppFormatters.currency((order.subtotal - order.depositAmount).clamp(0.0, double.infinity)),
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
+                          ),
+                        ],
+                      )),
+                    ],
                   ],
                 ],
               ),

@@ -66,6 +66,9 @@ class TableModel {
   /// Admin: bàn còn hoạt động (false = đã vô hiệu hóa / đã tháo).
   final bool isActive;
 
+  /// Tiền cọc cấu hình cho bàn này (0.0 = không bắt buộc cọc).
+  final double depositAmount;
+
   /// Mở được cho khách vãng lai ngay lúc này: còn hoạt động, không khóa, đang trống
   /// (bàn "Đặt trước" đang giữ cho khách đặt nên không tính).
   bool get canOpenForWalkIn => isActive && !isLocked && status == TableStatus.empty;
@@ -93,6 +96,7 @@ class TableModel {
     this.isActive = true,
     this.available,
     this.nextReservation,
+    this.depositAmount = 0.0,
   });
 
   /// Đọc một bàn do API `/tables` trả về.
@@ -123,6 +127,7 @@ class TableModel {
       isLocked: isLocked,
       isActive: json['is_active'] as bool? ?? true,
       // available không có trong /tables — dùng null để phân biệt
+      depositAmount: (json['deposit_amount'] as num?)?.toDouble() ?? 0.0,
       nextReservation: json['next_reservation'] is Map<String, dynamic>
           ? TableReservationInfo.fromApiJson(json['next_reservation'] as Map<String, dynamic>)
           : null,
@@ -160,10 +165,14 @@ class TableModel {
       isActive: base.isActive,
       available: available,
       nextReservation: base.nextReservation,
+      depositAmount: base.depositAmount,
     );
   }
 
   TableModel copyWith({
+    String? number,
+    String? area,
+    int? capacity,
     TableStatus? status,
     DateTime? servingSince,
     String? currentOrderId,
@@ -171,12 +180,13 @@ class TableModel {
     bool? isLocked,
     bool? isActive,
     bool? available,
+    double? depositAmount,
   }) {
     return TableModel(
       id: id,
-      number: number,
-      area: area,
-      capacity: capacity,
+      number: number ?? this.number,
+      area: area ?? this.area,
+      capacity: capacity ?? this.capacity,
       status: status ?? this.status,
       servingSince: servingSince ?? this.servingSince,
       currentOrderId: clearOrder ? null : (currentOrderId ?? this.currentOrderId),
@@ -184,6 +194,7 @@ class TableModel {
       isActive: isActive ?? this.isActive,
       available: available ?? this.available,
       nextReservation: nextReservation,
+      depositAmount: depositAmount ?? this.depositAmount,
     );
   }
 }

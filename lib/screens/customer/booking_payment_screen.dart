@@ -144,9 +144,7 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
     if (reservation == null || !checkout.isActive || _submitting) return;
 
     final itemCount = checkout.preOrder.totalQuantity;
-    final total = checkout.preOrder.subtotal;
-    // Khách chỉ chuyển cọc 50% (nhóm chốt 26/11), khớp số server ghi vào deposit_amount.
-    final deposit = BookingCheckout.depositFor(total);
+    final deposit = checkout.deposit;
     setState(() => _submitting = true);
 
     final navigator = Navigator.of(context);
@@ -156,9 +154,9 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
       ..showSnackBar(SnackBar(content: Text(text), duration: const Duration(seconds: 3)));
 
     try {
-      // Luôn dùng PaymentMethod.qr cho chuyển khoản QR
+      // Dùng PaymentMethod.qr nếu có cọc
       final confirmed = await checkout.complete(
-        payment: total > 0 ? PaymentMethod.qr : null,
+        payment: deposit > 0 ? PaymentMethod.qr : null,
       );
 
       // Cập nhật lại số lượng thông báo chưa đọc cho khách
@@ -235,7 +233,9 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
 
     final items = checkout.preOrder.items;
     final total = checkout.preOrder.subtotal;
-    final deposit = BookingCheckout.depositFor(total);
+    final tableDeposit = checkout.tableDeposit;
+    final foodDeposit = checkout.foodDeposit;
+    final deposit = checkout.deposit;
     final needsPayment = deposit > 0;
 
     var order = 0;
@@ -396,15 +396,21 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
                       ),
                     ),
                     const SizedBox(height: 10),
-                    // Cọc 50% chuyển ngay + phần còn lại trả tại quán (thu ngân trừ cọc vào hóa đơn).
-                    _DepositSummary(total: total, deposit: deposit),
+                  ],
+
+                  if (needsPayment) ...[
+                    const SizedBox(height: 14),
+                    step(_DepositSummary(
+                      tableDeposit: tableDeposit,
+                      foodTotal: total,
+                      foodDeposit: foodDeposit,
+                      totalDeposit: deposit,
+                    )),
                     const SizedBox(height: 20),
 
                     // ── QR Chuyển khoản ─────────────────────────────────
                     step(_BankQrSection(
-                      // Chỉ chuyển tiền cọc 50%, không phải toàn bộ tiền món.
                       amount: deposit,
-                      // Mã đặt bàn (DF-xxxx) khớp với mã NV Order / Thu ngân / Admin thấy trong Lịch đặt bàn
                       refId: reservation.code,
                     )),
                   ],
@@ -451,7 +457,7 @@ class _BookingPaymentScreenState extends State<BookingPaymentScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Chuyển ${AppFormatters.currency(deposit)} (cọc 50%) với nội dung "${reservation.code}".\nNgay khi nhận được tiền, hệ thống SePay sẽ tự động xác nhận và chuyển sang màn hình thành công.',
+                            'Chuyển ${AppFormatters.currency(deposit)} (tiền cọc giữ chỗ) với nội dung "${reservation.code}".\nNgay khi nhận được tiền, hệ thống SePay sẽ tự động xác nhận và chuyển sang màn hình thành công.',
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 12.5,
@@ -689,16 +695,23 @@ class _InfoRow extends StatelessWidget {
 }
 
 
-/// Khối "Cọc 50% · chuyển ngay" và "Còn lại · trả tại quán" dưới tổng món đặt trước.
+/// Khối "Tiền cọc · chuyển ngay" và "Còn lại · trả tại quán" hiển thị chi tiết cọc bàn + cọc món.
 class _DepositSummary extends StatelessWidget {
-  final double total;
-  final double deposit;
+  final double tableDeposit;
+  final double foodTotal;
+  final double foodDeposit;
+  final double totalDeposit;
 
-  const _DepositSummary({required this.total, required this.deposit});
+  const _DepositSummary({
+    required this.tableDeposit,
+    required this.foodTotal,
+    required this.foodDeposit,
+    required this.totalDeposit,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final rest = (total - deposit).clamp(0.0, double.infinity);
+    final rest = (foodTotal - foodDeposit).clamp(0.0, double.infinity);
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
       decoration: BoxDecoration(
@@ -707,6 +720,7 @@ class _DepositSummary extends StatelessWidget {
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -714,32 +728,81 @@ class _DepositSummary extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Cọc 50% · chuyển ngay',
+                    Text('Tiền cọc · Chuyển ngay',
                         style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                    Text('Để nhà hàng chuẩn bị món cho bạn',
-                        style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                    Text('Được trừ thẳng vào hóa đơn khi bạn đến ăn',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primaryDark)),
                   ],
                 ),
               ),
-              Text(AppFormatters.currency(deposit),
+              Text(AppFormatters.currency(totalDeposit),
                   style: TextStyle(
                       fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.textPrimary, letterSpacing: -0.5)),
             ],
           ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: Text('Còn lại · trả tại quán',
-                    style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary)),
+          const SizedBox(height: 10),
+          if (tableDeposit > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('• Tiền cọc giữ bàn',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  ),
+                  Text(AppFormatters.currency(tableDeposit),
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                ],
               ),
-              Text(AppFormatters.currency(rest),
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-            ],
+            ),
+          if (foodDeposit > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text('• Tiền cọc món đặt trước (50%)',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                  ),
+                  Text(AppFormatters.currency(foodDeposit),
+                      style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                ],
+              ),
+            ),
+          if (rest > 0) ...[
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text('Tiền món còn lại · Trả tại quán',
+                      style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                ),
+                Text(AppFormatters.currency(rest),
+                    style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+              ],
+            ),
+          ],
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppColors.errorBg,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: AppColors.error.withValues(alpha: 0.3)),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.error),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Lưu ý: Tiền cọc sẽ trừ vào bill khi ăn. HỦY ĐẶT BÀN MẤT CỌC 100%, nhà hàng KHÔNG HOÀN LẠI cọc trong mọi trường hợp.',
+                    style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: AppColors.error, height: 1.35),
+                  ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 6),
-          Text('Hủy đặt bàn sau khi đã cọc thì không được hoàn tiền cọc.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
         ],
       ),
     );

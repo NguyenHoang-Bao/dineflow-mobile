@@ -149,6 +149,9 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
     final areas = _orderedAreas();
     final numberCtrl = TextEditingController(text: table?.number ?? '');
     final capacityCtrl = TextEditingController(text: table != null ? '${table.capacity}' : '');
+    final depositCtrl = TextEditingController(
+      text: (table != null && table.depositAmount > 0) ? table.depositAmount.toInt().toString() : '',
+    );
     // Một ô chọn khu vực: các khu vực đã có + mục "Khu vực mới…". Chỉ khi chọn mục mới
     // (hoặc chưa có khu vực nào) mới hiện ô nhập tên khu vực.
     const newAreaValue = '__new_area__';
@@ -190,6 +193,20 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                     },
                   ),
                   const SizedBox(height: 14),
+                  AppTextField(
+                    controller: depositCtrl,
+                    label: 'Tiền cọc bàn (VNĐ)',
+                    hint: 'VD: 100000 (để trống nếu không cọc)',
+                    keyboardType: TextInputType.number,
+                    validator: (v) {
+                      if (v != null && v.trim().isNotEmpty) {
+                        final val = double.tryParse(v.trim());
+                        if (val == null || val < 0) return 'Tiền cọc phải là số không âm';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 14),
                   Text('Khu vực', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
                   const SizedBox(height: 8),
                   if (areas.isNotEmpty)
@@ -224,6 +241,7 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                     label: table == null ? 'Thêm bàn' : 'Lưu thay đổi',
                     onPressed: () async {
                       if (!formKey.currentState!.validate()) return;
+                      final deposit = double.tryParse(depositCtrl.text.trim()) ?? 0.0;
                       Navigator.of(bCtx).pop();
                       setState(() => _loading = true);
                       try {
@@ -232,6 +250,7 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                             number: numberCtrl.text.trim(),
                             area: resolvedArea(),
                             capacity: int.parse(capacityCtrl.text.trim()),
+                            depositAmount: deposit,
                           );
                           _snack('Đã thêm bàn "${numberCtrl.text.trim()}"');
                         } else {
@@ -240,6 +259,7 @@ class _TableAreaManagementScreenState extends State<TableAreaManagementScreen> {
                             number: numberCtrl.text.trim(),
                             area: resolvedArea(),
                             capacity: int.parse(capacityCtrl.text.trim()),
+                            depositAmount: deposit,
                           );
                           _snack('Đã cập nhật "${table.number}"');
                         }
@@ -577,7 +597,22 @@ class _TableTile extends StatelessWidget {
                 ),
               ],
             ),
-            Text('${table.capacity} khách', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+            Row(
+              children: [
+                Text('${table.capacity} khách', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                if (table.depositAmount > 0) ...[
+                  Text(' · ', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+                  Expanded(
+                    child: Text(
+                      'Cọc ${AppFormatters.currency(table.depositAmount)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primaryDark),
+                    ),
+                  ),
+                ],
+              ],
+            ),
             const Spacer(),
             Row(
               children: [

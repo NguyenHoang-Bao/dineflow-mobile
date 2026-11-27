@@ -148,8 +148,9 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
   }
 
   Future<void> _cancel(Reservation r) async {
-    final depositNote = r.isDepositPaid
-        ? '\nKhách đã cọc ${AppFormatters.currency(r.depositAmount ?? 0)} — tiền cọc không được hoàn lại.'
+    final hasDeposit = r.isDepositPaid && (r.depositAmount ?? 0) > 0;
+    final depositNote = hasDeposit
+        ? '\n\n⚠️ Khách đã cọc ${AppFormatters.currency(r.depositAmount!)}. Quán giữ 100% tiền cọc (KHÔNG hoàn lại tiền cọc).'
         : '';
     final ok = await _confirm(
       title: 'Hủy lượt đặt ${r.code}?',
@@ -164,7 +165,9 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
       final updated = await _repo.cancel(r.id);
       if (!mounted) return;
       _replace(updated);
-      _say(r.isDepositPaid ? 'Đã hủy lượt đặt. Tiền cọc không được hoàn lại.' : 'Đã hủy lượt đặt.');
+      _say(hasDeposit
+          ? 'Đã hủy lượt đặt. Quán giữ toàn bộ tiền cọc ${AppFormatters.currency(r.depositAmount!)} (không hoàn lại).'
+          : 'Đã hủy lượt đặt.');
     } on ApiException catch (e) {
       if (mounted) _say(e.message);
     } finally {
@@ -423,13 +426,17 @@ class _ReservationCard extends StatelessWidget {
           ],
           const SizedBox(height: 8),
           Text(
-            r.isDepositPaid
-                ? 'Đã cọc ${AppFormatters.currency(r.depositAmount ?? 0)} — trừ vào hóa đơn khi thanh toán'
-                : 'Không có tiền cọc',
+            r.status == ReservationStatus.cancelled && r.isDepositPaid && (r.depositAmount ?? 0) > 0
+                ? 'Đã cọc ${AppFormatters.currency(r.depositAmount!)} — Quán giữ cọc (khách mất cọc do hủy)'
+                : (r.isDepositPaid
+                    ? 'Đã cọc ${AppFormatters.currency(r.depositAmount ?? 0)} — trừ vào hóa đơn khi thanh toán'
+                    : 'Không có tiền cọc'),
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: r.isDepositPaid ? AppColors.success : AppColors.textSecondary,
+              color: r.status == ReservationStatus.cancelled && r.isDepositPaid
+                  ? AppColors.error
+                  : (r.isDepositPaid ? AppColors.success : AppColors.textSecondary),
             ),
           ),
           if (checkInHint != null) ...[

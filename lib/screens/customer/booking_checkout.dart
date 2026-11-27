@@ -35,6 +35,7 @@ class BookingCheckout {
   Reservation? _reservation;
   DateTime? _deadline;
   bool _active = false;
+  double _tableDeposit = 0.0;
 
   /// Các món khách đặt trước trong phiên này. Dùng chung với danh sách món khách
   /// đã chọn ở Thực đơn / Trang chủ ([AppCart.customer]) nên món chọn trước khi
@@ -42,6 +43,9 @@ class BookingCheckout {
   CartStore get preOrder => AppCart.customer;
 
   Reservation? get reservation => _reservation;
+
+  /// Tiền cọc cấu hình theo từng bàn của lượt đặt này.
+  double get tableDeposit => _tableDeposit > 0 ? _tableDeposit : (_reservation?.depositAmount ?? 0.0);
 
   /// Phiên đang chạy: bàn đang được giữ, chưa thanh toán, chưa huỷ.
   bool get isActive => _active && _reservation != null;
@@ -56,8 +60,9 @@ class BookingCheckout {
   bool get isExpired => isActive && remaining == Duration.zero;
 
   /// Bắt đầu giữ bàn sau khi khách xác nhận ở bước Đặt bàn.
-  void start(Reservation reservation) {
+  void start(Reservation reservation, {double tableDeposit = 0.0}) {
     _reservation = reservation;
+    _tableDeposit = tableDeposit > 0 ? tableDeposit : (reservation.depositAmount ?? 0.0);
     _deadline = DateTime.now().add(holdDuration);
     _active = true;
   }
@@ -71,8 +76,11 @@ class BookingCheckout {
   static double depositFor(double preOrderTotal) =>
       preOrderTotal <= 0 ? 0 : ((preOrderTotal * depositRate) / 100).ceilToDouble() * 100;
 
-  /// Tiền cọc của phiên hiện tại (theo các món đang chọn).
-  double get deposit => depositFor(preOrder.subtotal);
+  /// Tiền cọc món ăn đặt trước (50% tiền món nếu có).
+  double get foodDeposit => depositFor(preOrder.subtotal);
+
+  /// Tổng tiền cọc của phiên: Tiền cọc theo từng bàn + Tiền cọc món đặt trước (nếu có).
+  double get deposit => tableDeposit + foodDeposit;
 
   /// Bản lượt đặt này trên server (null nếu không tải được hoặc không tìm thấy).
   Future<Reservation?> fetchServerCopy() async {
@@ -139,15 +147,22 @@ class BookingCheckout {
   /// để khách xử lý (quay lại sửa món hoặc đặt lại).
   Future<Reservation> complete({PaymentMethod? payment}) async {
     final reservation = _reservation!;
+    final totalDeposit = deposit;
     final confirmed = await ReservationRepository.instance.confirm(
       reservation.id,
       items: preOrder.items,
       payment: payment,
     );
-    MockData.upsertReservation(confirmed);
+    final withDeposit = confirmed.copyWith(
+      depositAmount: confirmed.depositAmount != null && confirmed.depositAmount! > 0
+          ? confirmed.depositAmount
+          : (totalDeposit > 0 ? totalDeposit : null),
+      depositPaidAt: totalDeposit > 0 ? (confirmed.depositPaidAt ?? DateTime.now()) : confirmed.depositPaidAt,
+    );
+    MockData.upsertReservation(withDeposit);
     preOrder.clear();
     _active = false;
-    return confirmed;
+    return withDeposit;
   }
 }
 

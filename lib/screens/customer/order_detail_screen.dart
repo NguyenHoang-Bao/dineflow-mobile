@@ -190,6 +190,12 @@ class OrderDetailScreen extends StatelessWidget {
                     label: 'Tạm tính ($itemCount món)',
                     value: AppFormatters.currency(order.subtotal),
                   ),
+                  if (order.hasDeposit)
+                    LabeledValueRow(
+                      label: 'Đã cọc bàn (Khấu trừ)',
+                      value: '-${AppFormatters.currency(order.depositAmount)}',
+                      valueColor: AppColors.success,
+                    ),
                   LabeledValueRow(
                     label: 'Thanh toán',
                     value: order.paymentStatus == PaymentStatus.paid ? 'Đã thanh toán' : 'Chưa thanh toán',
@@ -202,7 +208,7 @@ class OrderDetailScreen extends StatelessWidget {
                   ),
                   Row(
                     children: [
-                      Text('Tổng cộng',
+                      Text(order.hasDeposit ? 'Cần thanh toán' : 'Tổng cộng',
                           style: TextStyle(
                               fontSize: 16, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
                       const SizedBox(width: 12),
@@ -212,7 +218,7 @@ class OrderDetailScreen extends StatelessWidget {
                           child: FittedBox(
                             fit: BoxFit.scaleDown,
                             child: Text(
-                              AppFormatters.currency(order.subtotal),
+                              AppFormatters.currency((order.subtotal - order.depositAmount).clamp(0.0, double.infinity)),
                               style: TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.w800,
