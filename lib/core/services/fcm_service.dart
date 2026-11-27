@@ -1,6 +1,8 @@
-import 'dart:developer' as dev;
+﻿import 'dart:developer' as dev;
+import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import '../../app/app_navigator.dart';
 import '../api/api_client.dart';
 
 /// Quản lý nhận Push Notification qua Firebase Cloud Messaging (FCM).
@@ -14,7 +16,6 @@ class FcmService {
   String? get fcmToken => _fcmToken;
 
   /// Khởi tạo Firebase và đăng ký nhận thông báo.
-  /// Bọc try-catch để nếu chưa có file google-services.json thì app vẫn chạy bình thường.
   Future<void> init() async {
     if (_initialized) return;
 
@@ -30,6 +31,12 @@ class FcmService {
         badge: true,
         sound: true,
         provisional: false,
+      );
+
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
       );
 
       dev.log('[FCM] Permission status: ${settings.authorizationStatus}', name: 'FcmService');
@@ -49,6 +56,52 @@ class FcmService {
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         dev.log('[FCM Foreground] Nhận thông báo: ${message.notification?.title} - ${message.notification?.body}',
             name: 'FcmService');
+        final title = message.notification?.title ?? 'Thông báo từ DineFlow';
+        final body = message.notification?.body ?? '';
+        final context = AppNavigator.key.currentContext;
+        if (context != null) {
+          ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+            SnackBar(
+              behavior: SnackBarBehavior.floating,
+              backgroundColor: const Color(0xFF1E293B),
+              elevation: 6,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              content: Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEA580C).withOpacity(0.2),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.notifications_active, color: Color(0xFFEA580C), size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Colors.white),
+                        ),
+                        if (body.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            body,
+                            style: const TextStyle(fontSize: 12, color: Colors.white70),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        }
       });
 
       // 5. Lắng nghe khi người dùng bấm vào thông báo để mở app
