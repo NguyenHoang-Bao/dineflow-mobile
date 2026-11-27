@@ -17,14 +17,14 @@ class OrderEntryScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return LiveTables(
       builder: (context, refresh) {
-        final areas = MockData.areas;
+        final areas = MockData.activeAreas;
 
         return Scaffold(
           backgroundColor: AppColors.surfaceAlt,
           body: Column(
             children: [
               AppHeaderBand(
-                caption: '${MockData.tables.length} bàn · ${areas.length} khu vực',
+                caption: '${MockData.activeTables.length} bàn · ${areas.length} khu vực',
                 title: 'Chọn bàn để Order',
                 showBack: false,
               ),
@@ -62,7 +62,7 @@ class OrderEntryScreen extends StatelessWidget {
                       for (final area in areas) ...[
                         StaffAreaTitle(area),
                         StaffTableGrid(
-                          tables: MockData.tables.where((t) => t.area == area).toList(),
+                          tables: MockData.activeTables.where((t) => t.area == area).toList(),
                           onTap: (table) => Navigator.of(context)
                               .pushNamed(AppRoutes.staffCreateOrder, arguments: table.id),
                         ),

@@ -51,7 +51,13 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
     }
     final table = matches.first;
     final order = table.currentOrderId != null ? MockData.findOrder(table.currentOrderId!) : null;
-    final nextStatus = order != null ? _nextStatus(order.status) : null;
+    final nextStatus = order != null && order.isOpen ? _nextStatus(order.status) : null;
+    // Ràng buộc: bàn giữ cho khách đặt / bị khóa / ngừng phục vụ thì không gọi món được;
+    // gộp bàn không nhận đơn đã thanh toán (món gộp vào sẽ không thu được tiền).
+    final canAddItems = table.isActive && (table.status == TableStatus.serving || table.canOpenForWalkIn);
+    final canMerge = table.isActive &&
+        !table.isLocked &&
+        (table.canOpenForWalkIn || (table.status == TableStatus.serving && (order?.acceptsMoreItems ?? false)));
 
     var step = 0;
     Widget appear(Widget child) => FadeSlideIn.staggered(index: step++, child: child);
@@ -170,8 +176,9 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
                   AppButton(
                     label: 'Thêm món',
                     icon: Icons.add_rounded,
-                    onPressed: () => Navigator.of(context)
-                        .pushNamed(AppRoutes.staffCreateOrder, arguments: table.id),
+                    onPressed: canAddItems
+                        ? () => Navigator.of(context).pushNamed(AppRoutes.staffCreateOrder, arguments: table.id)
+                        : null,
                   ),
                   const SizedBox(height: 10),
                   // Hàng 2: Chuyển bàn / Gộp bàn
@@ -200,7 +207,7 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
                           // - Bàn đích trống → server sẽ chuyển đơn của bàn nguồn vào đây
                           //   (hoạt động như chuyển bàn).
                           // - Bàn đích đang phục vụ → server gộp các món lại thành một đơn.
-                          onPressed: (table.isActive && !table.isLocked)
+                          onPressed: canMerge
                               ? () => Navigator.of(context)
                                   .pushNamed(AppRoutes.staffMergeTable, arguments: table.id)
                               : null,
@@ -250,7 +257,8 @@ class _TableDetailScreenState extends State<TableDetailScreen> {
   OrderStatus? _nextStatus(OrderStatus current) => switch (current) {
         OrderStatus.placed => OrderStatus.preparing,
         OrderStatus.preparing => OrderStatus.serving,
-        OrderStatus.serving => OrderStatus.completed,
+        // Không có bước "Hoàn thành phục vụ": thu ngân thanh toán thì đơn tự hoàn thành, trả bàn
+        // (bấm sớm làm món gọi thêm tách thành hóa đơn thứ hai — nhóm chốt 26/11).
         _ => null,
       };
 

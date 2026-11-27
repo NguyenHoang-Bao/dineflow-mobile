@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/revenue.dart';
 import '../theme/app_colors.dart';
+import '../utils/formatters.dart';
 
 /// Biểu đồ cột đơn giản vẽ bằng CustomPainter, dùng dữ liệu mock để
 /// minh họa doanh thu (không dùng thư viện chart ngoài).
@@ -27,9 +28,14 @@ class MockBarChart extends StatelessWidget {
                 mainAxisSize: MainAxisSize.max,
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Text(
-                    '${(point.amount / 1000000).toStringAsFixed(1)}tr',
-                    style: TextStyle(fontSize: 9.5, color: AppColors.textSecondary),
+                  // "129k" thay vì "0.1tr": làm tròn theo triệu thì mất gần hết thông tin.
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      AppFormatters.compactCurrency(point.amount),
+                      maxLines: 1,
+                      style: TextStyle(fontSize: 9.5, color: AppColors.textSecondary),
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Expanded(

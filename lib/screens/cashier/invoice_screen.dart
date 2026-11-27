@@ -5,14 +5,39 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-import '../../app/routes.dart';
 import '../../models/invoice.dart';
+import '../../models/order_item.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_header_band.dart';
 import '../../widgets/dashed_divider.dart';
+import 'cashier_shell.dart';
+
+/// Tham số mở màn Hóa đơn ngay sau khi thu tiền (khác với xem lại từ Lịch sử).
+class InvoiceScreenArgs {
+  final Invoice invoice;
+  final bool afterPayment;
+
+  /// Khách thành viên của hóa đơn vừa thu (null = khách vãng lai). Server luôn trả
+  /// `points_earned` tính theo tổng tiền kể cả khi không có khách, nên chỉ hiện điểm khi biết chắc
+  /// có thành viên.
+  final String? memberName;
+
+  /// Dòng lưu ý hiện trên đầu hóa đơn (vd hóa đơn dựng tại máy khi SePay đã tự ghi nhận đơn).
+  final String? notice;
+
+  const InvoiceScreenArgs(this.invoice, {this.afterPayment = false, this.memberName, this.notice});
+}
+
+/// Dòng món trên hóa đơn: tên × số lượng, kèm size/topping để khách hiểu vì sao giá khác menu.
+String _itemLabel(OrderItem item) =>
+    '${item.foodName} ×${item.quantity}${item.optionsLabel.isEmpty ? '' : '\n${item.optionsLabel}'}';
+
+/// Nhãn dòng giảm giá: voucher nào, hay giảm theo hạng thành viên.
+String _discountLabel(Invoice invoice) =>
+    invoice.promotionCode != null ? 'Giảm giá (${invoice.promotionCode})' : 'Giảm hạng thành viên';
 
 /// Hóa đơn thanh toán dạng tờ hoá đơn. Dùng lại cho cả hóa đơn vừa tạo và xem
 /// lại hóa đơn trong Lịch sử.
@@ -25,7 +50,18 @@ import '../../widgets/dashed_divider.dart';
 /// (cầu nối giữa PDF thuần Dart với máy in / share sheet của iOS / Android).
 class InvoiceScreen extends StatelessWidget {
   final Invoice invoice;
-  const InvoiceScreen({super.key, required this.invoice});
+
+  /// Vừa thu tiền xong: "Hoàn tất" về tab Chờ thanh toán để thu đơn tiếp theo. Mở từ Lịch sử
+  /// thì nút là "Đóng" và chỉ quay lại (trước đây cả hai đều dựng lại khung và nhảy về Tổng quan).
+  final bool afterPayment;
+
+  /// Xem [InvoiceScreenArgs.memberName].
+  final String? memberName;
+
+  /// Xem [InvoiceScreenArgs.notice].
+  final String? notice;
+
+  const InvoiceScreen({super.key, required this.invoice, this.afterPayment = false, this.memberName, this.notice});
 
   /// Tạo dữ liệu PDF từ hoá đơn. Hàm này trả về [Uint8List] — chuỗi byte
   /// của file .pdf — mà cả `Printing.layoutPdf` và `Printing.sharePdf` đều cần.
@@ -44,7 +80,7 @@ class InvoiceScreen extends StatelessWidget {
     doc.addPage(
       pw.Page(
         // Khổ giấy hóa đơn nhiệt 80mm × dài tùy nội dung.
-        pageFormat: PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 8 * PdfPageFormat.mm),
+        pageFormat: const PdfPageFormat(80 * PdfPageFormat.mm, double.infinity, marginAll: 8 * PdfPageFormat.mm),
         build: (ctx) => pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.center,
           children: [
@@ -74,7 +110,7 @@ class InvoiceScreen extends StatelessWidget {
             // ── Danh sách món ──────────────────────────────────────────────
             for (final item in invoice.items)
               _pdfRow(
-                '${item.foodName} ×${item.quantity}',
+                _itemLabel(item),
                 AppFormatters.currency(item.total),
                 font: font,
                 fontBold: fontBold,
@@ -85,8 +121,9 @@ class InvoiceScreen extends StatelessWidget {
 
             // ── Tổng tiền ──────────────────────────────────────────────────
             _pdfRow('Tạm tính', AppFormatters.currency(invoice.subtotal), font: font, fontBold: fontBold),
-            _pdfRow('Giảm giá', '-${AppFormatters.currency(invoice.discount)}',
-                font: font, fontBold: fontBold),
+            if (invoice.discount > 0)
+              _pdfRow(_discountLabel(invoice), '-${AppFormatters.currency(invoice.discount)}',
+                  font: font, fontBold: fontBold),
             if (invoice.hasDeposit)
               _pdfRow('Đã cọc (đặt bàn)', '-${AppFormatters.currency(invoice.depositAmount)}',
                   font: font, fontBold: fontBold),
@@ -198,7 +235,19 @@ class InvoiceScreen extends StatelessWidget {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
               children: [
-                FadeSlideIn(child: _Receipt(invoice: invoice)),
+                if (notice != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.warningBg,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: AppColors.warning.withValues(alpha: 0.4)),
+                    ),
+                    child: Text(notice!, style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary, height: 1.4)),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                FadeSlideIn(child: _Receipt(invoice: invoice, memberName: memberName)),
               ],
             ),
           ),
@@ -233,9 +282,15 @@ class InvoiceScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   AppButton(
-                    label: 'Hoàn tất',
-                    onPressed: () => Navigator.of(context)
-                        .pushNamedAndRemoveUntil(AppRoutes.cashierDashboard, (route) => false),
+                    label: afterPayment ? 'Hoàn tất · thu đơn tiếp' : 'Đóng',
+                    onPressed: () {
+                      if (afterPayment) {
+                        CashierShell.tabRequest.value = CashierTab.pending;
+                        Navigator.of(context).popUntil((route) => route.isFirst);
+                      } else {
+                        Navigator.of(context).pop();
+                      }
+                    },
                   ),
                 ],
               ),
@@ -251,8 +306,9 @@ class InvoiceScreen extends StatelessWidget {
 /// ngăn bằng đường kẻ đứt.
 class _Receipt extends StatelessWidget {
   final Invoice invoice;
+  final String? memberName;
 
-  const _Receipt({required this.invoice});
+  const _Receipt({required this.invoice, this.memberName});
 
   @override
   Widget build(BuildContext context) {
@@ -289,13 +345,13 @@ class _Receipt extends StatelessWidget {
           const DashedDivider(),
           const SizedBox(height: 10),
           for (final item in invoice.items)
-            _ReceiptRow(
-                label: '${item.foodName} ×${item.quantity}', value: AppFormatters.currency(item.total)),
+            _ReceiptRow(label: _itemLabel(item), value: AppFormatters.currency(item.total)),
           const SizedBox(height: 10),
           const DashedDivider(),
           const SizedBox(height: 10),
           _ReceiptRow(label: 'Tạm tính', value: AppFormatters.currency(invoice.subtotal)),
-          _ReceiptRow(label: 'Giảm giá', value: '-${AppFormatters.currency(invoice.discount)}'),
+          if (invoice.discount > 0)
+            _ReceiptRow(label: _discountLabel(invoice), value: '-${AppFormatters.currency(invoice.discount)}'),
           if (invoice.hasDeposit)
             _ReceiptRow(
               label: 'Đã cọc (đặt bàn)',
@@ -325,6 +381,13 @@ class _Receipt extends StatelessWidget {
               ),
             ],
           ),
+          if (memberName != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: Text(
+                  'Thành viên $memberName${(invoice.pointsEarned ?? 0) > 0 ? ' · +${invoice.pointsEarned} điểm' : ''}',
+                  style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
+            ),
           const SizedBox(height: 16),
           const DashedDivider(),
           const SizedBox(height: 12),

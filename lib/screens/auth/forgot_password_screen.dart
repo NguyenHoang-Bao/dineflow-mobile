@@ -172,7 +172,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _Hint(
+        const _Hint(
           'Nhập email đã dùng khi đăng ký. Chúng tôi sẽ gửi mã xác nhận 6 số để bạn đặt lại mật khẩu.\n'
           'Chức năng này dành cho tài khoản khách hàng. Nhân viên quên mật khẩu vui lòng liên hệ quản lý.',
         ),

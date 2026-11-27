@@ -87,6 +87,13 @@ class _DineFlowAppState extends State<DineFlowApp> with WidgetsBindingObserver {
       themeAnimationDuration: Duration.zero,
       navigatorKey: AppNavigator.key,
       initialRoute: widget.initialRoute,
+      // Chỉ dựng ĐÚNG một route mở đầu. Mặc định Flutter tách "/admin/dashboard" thành
+      // "/", "/admin", "/admin/dashboard" và đẩy cả ba; hai route đầu rơi vào `default` của
+      // onGenerateRoute (= màn Đăng nhập) nên mở lại app còn phiên thì màn chính có nút ←
+      // và bấm Back quay về Đăng nhập.
+      onGenerateInitialRoutes: (initialRoute) => [
+        AppRoutes.onGenerateRoute(RouteSettings(name: initialRoute)),
+      ],
       onGenerateRoute: AppRoutes.onGenerateRoute,
       // Icon thanh trạng thái tương phản với nền (màn không có AppBar).
       builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(

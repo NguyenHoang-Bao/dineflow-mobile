@@ -148,8 +148,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         label: 'Số điện thoại',
                         hint: '09xx xxx xxx',
                         keyboardType: TextInputType.phone,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Vui lòng nhập số điện thoại' : null,
+                        // Số điện thoại dùng để đăng nhập nên phải đúng dạng (server chưa tự kiểm tra).
+                        validator: (v) {
+                          final digits = (v ?? '').replaceAll(RegExp(r'[\s.\-]'), '');
+                          if (digits.isEmpty) return 'Vui lòng nhập số điện thoại';
+                          if (!RegExp(r'^0\d{9}$').hasMatch(digits)) {
+                            return 'Số điện thoại gồm 10 chữ số, bắt đầu bằng 0';
+                          }
+                          return null;
+                        },
                       )),
                       const SizedBox(height: 16),
                       step(AppTextField(
@@ -167,9 +174,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       step(AppTextField(
                         controller: _passwordController,
                         label: 'Mật khẩu',
-                        hint: 'Tối thiểu 4 ký tự',
+                        // Khớp server (min:6). Trước đây app cho 4 ký tự rồi server báo lỗi tiếng Anh.
+                        hint: 'Tối thiểu 6 ký tự',
                         obscureText: true,
-                        validator: (v) => (v == null || v.length < 4) ? 'Mật khẩu tối thiểu 4 ký tự' : null,
+                        validator: (v) => (v == null || v.length < 6) ? 'Mật khẩu tối thiểu 6 ký tự' : null,
                       )),
                       const SizedBox(height: 16),
                       step(AppTextField(

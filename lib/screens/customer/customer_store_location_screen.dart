@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../app/restaurant_info.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_page_header.dart';
@@ -9,16 +10,13 @@ class CustomerStoreLocationScreen extends StatelessWidget {
   const CustomerStoreLocationScreen({super.key});
 
   static const _name = 'DineFlow Restaurant';
-  static const _address = '140 Lê Trọng Tấn, Phường Tây Thạnh, Tân Phú, TP. Hồ Chí Minh';
-  static const _phone = '1800 1234';
+  static const _address = RestaurantInfo.address;
+  static const _phone = RestaurantInfo.hotline;
   // Dùng chuỗi địa chỉ để Google Maps tự geocode – chính xác hơn tọa độ
   static const _addressQuery =
       '140 Lê Trọng Tấn, Phường Tây Thạnh, Quận Tân Phú, TP. Hồ Chí Minh';
 
-  static const _hours = [
-    ('Thứ 2 – Thứ 6', '10:00 – 22:00'),
-    ('Thứ 7 – Chủ nhật', '09:00 – 23:00'),
-  ];
+  static const _hours = RestaurantInfo.openingHours;
 
   Future<void> _openMaps(BuildContext context) async {
     // geo: URI với chuỗi địa chỉ → mở Google Maps app tìm đúng địa điểm
@@ -180,7 +178,7 @@ class CustomerStoreLocationScreen extends StatelessWidget {
               ),
               child: Column(
                 children: [
-                  _InfoRow(
+                  const _InfoRow(
                     icon: Icons.location_on_outlined,
                     label: 'Địa chỉ',
                     value: _address,
@@ -239,6 +237,10 @@ class CustomerStoreLocationScreen extends StatelessWidget {
                                   ],
                                 ),
                               ),
+                            // Khung giờ đặt bàn online hẹp hơn giờ mở cửa: nói rõ để khách khỏi thắc mắc.
+                            const SizedBox(height: 4),
+                            Text('Nhận đặt bàn online: ${RestaurantInfo.bookingHoursLabel}',
+                                style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
                           ],
                         ),
                       ),

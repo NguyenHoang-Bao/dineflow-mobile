@@ -170,6 +170,13 @@ class MockData {
   /// Các khu vực, theo thứ tự xuất hiện trong danh sách bàn.
   static List<String> get areas => tables.map((t) => t.area).toSet().toList();
 
+  /// Bàn còn hoạt động. `GET /tables` trả cả bàn Admin đã vô hiệu hóa (bàn đã tháo) nên các
+  /// màn của NV Order dùng danh sách này; màn Admin vẫn dùng [tables] để bật lại được.
+  static List<TableModel> get activeTables => tables.where((t) => t.isActive).toList();
+
+  /// Khu vực có ít nhất một bàn còn hoạt động, theo thứ tự quán sắp.
+  static List<String> get activeAreas => activeTables.map((t) => t.area).toSet().toList();
+
   /// Tăng lên mỗi khi danh sách bàn được thay mới, để các màn đang mở tự dựng lại.
   static final ValueNotifier<int> tablesVersion = ValueNotifier(0);
 
@@ -281,8 +288,14 @@ class MockData {
   }
 
   /// Đơn tại bàn cần thu ngân xử lý: chưa thanh toán và chưa bị hủy.
+  /// Đơn cần thu ngân xử lý: chưa trả, đang chờ, hoặc ĐÃ nhận chuyển khoản SePay nhưng chưa xuất hóa đơn
+  /// (webhook đánh dấu đã trả nhưng đơn chưa hoàn thành — vd thu ngân rời màn thanh toán trước khi
+  /// tiền về). Nếu ẩn đơn này đi thì không ai xuất hóa đơn: tiền không vào ca, bàn bị chiếm mãi.
   static List<Order> get pendingPaymentOrders => orders
-      .where((o) => o.paymentStatus == PaymentStatus.unpaid || o.paymentStatus == PaymentStatus.pending)
+      .where((o) =>
+          o.paymentStatus == PaymentStatus.unpaid ||
+          o.paymentStatus == PaymentStatus.pending ||
+          (o.paymentStatus == PaymentStatus.paid && o.isOpen))
       .where((o) => o.status != OrderStatus.cancelled)
       .where((o) => o.tableNumber != null)
       // Đơn chưa có món (bàn vừa mở / vừa nhận bàn, chưa order) thì chưa có gì để thu

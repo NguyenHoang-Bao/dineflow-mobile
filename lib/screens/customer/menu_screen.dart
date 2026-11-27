@@ -236,7 +236,7 @@ class _MenuScreenState extends State<MenuScreen> {
                               onTap: () => Navigator.of(context)
                                   .pushNamed(AppRoutes.customerFoodDetail, arguments: food.id),
                               // Chọn món để đặt trước khi đặt bàn (hiện ở thanh món đã chọn phía dưới).
-                              onAdd: () => addOneFood(AppCart.customer, food),
+                              onAdd: () => addFoodOrPickOptions(context, AppCart.customer, food),
                             ),
                           );
                         },

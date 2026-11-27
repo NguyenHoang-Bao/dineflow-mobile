@@ -6,25 +6,26 @@ import '../utils/formatters.dart';
 import 'app_animations.dart';
 import 'status_badge.dart';
 
-class _StatusVisual {
+class OrderStatusVisual {
   final Color color;
   final Color background;
-  const _StatusVisual(this.color, this.background);
+  const OrderStatusVisual(this.color, this.background);
 }
 
-_StatusVisual orderStatusVisual(OrderStatus status) {
+OrderStatusVisual orderStatusVisual(OrderStatus status) {
   switch (status) {
     case OrderStatus.placed:
-      return _StatusVisual(AppColors.info, AppColors.infoBg);
-    // Theo mockup "Đơn đang phục vụ": đang chuẩn bị = viên vàng, đang phục vụ = viên nâu đen.
+      return OrderStatusVisual(AppColors.info, AppColors.infoBg);
+    // Theo mockup "Đơn đang phục vụ": đang chuẩn bị = viên vàng, đã ra món = viên nâu đen.
+    // Dùng chung cho mọi màn hiện trạng thái đơn (kể cả Chi tiết bàn) để cùng một màu.
     case OrderStatus.preparing:
-      return _StatusVisual(AppColors.textOnPrimary, AppColors.primary);
+      return OrderStatusVisual(AppColors.textOnPrimary, AppColors.primary);
     case OrderStatus.serving:
-      return _StatusVisual(AppColors.textOnDark, AppColors.ink);
+      return OrderStatusVisual(AppColors.textOnDark, AppColors.ink);
     case OrderStatus.completed:
-      return _StatusVisual(AppColors.success, AppColors.successBg);
+      return OrderStatusVisual(AppColors.success, AppColors.successBg);
     case OrderStatus.cancelled:
-      return _StatusVisual(AppColors.error, AppColors.errorBg);
+      return OrderStatusVisual(AppColors.error, AppColors.errorBg);
   }
 }
 
@@ -34,7 +35,20 @@ class OrderCard extends StatelessWidget {
   final VoidCallback? onTap;
   final Widget? trailingAction;
 
-  const OrderCard({super.key, required this.order, this.onTap, this.trailingAction});
+  /// Thay dòng ngày giờ mặc định (vd "Gọi lúc 12:44 · 25 phút trước" ở tab Đang phục vụ).
+  final String? timeLabel;
+
+  /// Thay nhãn trạng thái (NV Order dùng "Chờ bếp / Đang làm / Đã ra món").
+  final String? statusLabel;
+
+  const OrderCard({
+    super.key,
+    required this.order,
+    this.onTap,
+    this.trailingAction,
+    this.timeLabel,
+    this.statusLabel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -64,7 +78,11 @@ class OrderCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                StatusBadge(label: order.status.label, color: visual.color, background: visual.background),
+                StatusBadge(
+                  label: statusLabel ?? order.status.label,
+                  color: visual.color,
+                  background: visual.background,
+                ),
               ],
             ),
             const SizedBox(height: 8),
@@ -79,7 +97,7 @@ class OrderCard extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Flexible(
-                  child: Text(AppFormatters.timeDate(order.createdAt),
+                  child: Text(timeLabel ?? AppFormatters.timeDate(order.createdAt),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),

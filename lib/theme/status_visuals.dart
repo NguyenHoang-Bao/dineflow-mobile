@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/order.dart';
 import '../models/table_model.dart';
 import 'app_colors.dart';
 
@@ -53,12 +54,14 @@ TableTileVisual tableTileVisual(TableStatus status) {
         muted: AppColors.textOnPrimary.withValues(alpha: 0.75),
         border: AppColors.primary,
       );
+    // Bàn Admin khóa tạm: nền xám, viền đậm hơn để không lẫn với nền trang (ô chú thích
+    // "Khóa" trước đây trùng màu nền nên nhìn như không có).
     case TableStatus.locked:
       return (
-        background: AppColors.surfaceAlt,
+        background: AppColors.border,
         foreground: AppColors.textSecondary,
-        muted: AppColors.textSecondary.withValues(alpha: 0.6),
-        border: AppColors.border,
+        muted: AppColors.textSecondary.withValues(alpha: 0.75),
+        border: AppColors.textSecondary.withValues(alpha: 0.45),
       );
   }
 }
@@ -74,6 +77,23 @@ String tableStatusShortLabel(TableStatus status) {
     case TableStatus.reserved:
       return 'Đặt trước';
     case TableStatus.locked:
-      return 'Khoá';
+      return 'Đang khóa';
+  }
+}
+
+/// Bước của đơn theo cách NV Order nói, ngắn để vừa ô bàn: đơn vừa gửi = "Chờ bếp",
+/// bếp đang làm = "Đang làm", đã mang ra = "Đã ra món".
+String orderStepShortLabel(OrderStatus status) {
+  switch (status) {
+    case OrderStatus.placed:
+      return 'Chờ bếp';
+    case OrderStatus.preparing:
+      return 'Đang làm';
+    case OrderStatus.serving:
+      return 'Đã ra món';
+    case OrderStatus.completed:
+      return 'Chờ thanh toán';
+    case OrderStatus.cancelled:
+      return 'Đã hủy';
   }
 }

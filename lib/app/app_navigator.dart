@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/auth_repository.dart';
+import '../data/shift_repository.dart';
 import 'routes.dart';
 
 /// Điều hướng không cần BuildContext: dùng khi phiên hết hạn (do tầng API báo)
@@ -30,5 +31,9 @@ class AppNavigator {
 /// Đăng xuất (xóa token trên server và trên máy) rồi về màn Đăng nhập.
 Future<void> signOut() async {
   await AuthRepository.instance.logout();
+  // Ca làm giữ trong bộ nhớ là của thu ngân vừa đăng xuất; người đăng nhập sau phải tải lại.
+  ShiftRepository.instance
+    ..current.value = null
+    ..loaded = false;
   AppNavigator.toLogin();
 }

@@ -69,7 +69,7 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
     Navigator.of(context).pop();
   }
 
-  Future<void> _toggleFavorite(BuildContext context) async {
+  Future<void> _toggleFavorite() async {
     final liked = await FavoriteStore.instance.toggle(_food.id);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -161,7 +161,7 @@ class _FoodDetailScreenState extends State<FoodDetailScreen> {
                     return _CircleIconButton(
                       icon: liked ? Icons.favorite_rounded : Icons.favorite_border_rounded,
                       color: liked ? const Color(0xFFE53935) : null,
-                      onTap: () => _toggleFavorite(context),
+                      onTap: () => _toggleFavorite(),
                     );
                   },
                 ),

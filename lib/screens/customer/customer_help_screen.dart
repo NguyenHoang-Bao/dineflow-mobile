@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/restaurant_info.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_page_header.dart';
@@ -85,7 +86,7 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
             const SizedBox(height: 22),
 
             // --- FAQ ---
-            step(_GroupLabel('Câu hỏi thường gặp')),
+            step(const _GroupLabel('Câu hỏi thường gặp')),
             const SizedBox(height: 10),
             step(Container(
               decoration: BoxDecoration(
@@ -108,7 +109,7 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
             const SizedBox(height: 28),
 
             // --- Hotline ---
-            step(_GroupLabel('Liên hệ trực tiếp')),
+            step(const _GroupLabel('Liên hệ trực tiếp')),
             const SizedBox(height: 10),
             step(Container(
               padding: const EdgeInsets.all(16),
@@ -135,7 +136,7 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
                           style: TextStyle(
                               fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.textPrimary)),
                       const SizedBox(height: 2),
-                      Text('1800 1234 · Miễn phí · 8:00 – 22:00',
+                      Text('${RestaurantInfo.hotline} · Miễn phí · ${RestaurantInfo.hotlineHours}',
                           style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
                     ],
                   ),
@@ -146,7 +147,7 @@ class _CustomerHelpScreenState extends State<CustomerHelpScreen> {
             const SizedBox(height: 28),
 
             // --- Gửi phản hồi ---
-            step(_GroupLabel('Gửi phản hồi')),
+            step(const _GroupLabel('Gửi phản hồi')),
             const SizedBox(height: 10),
             step(_submitted ? _buildSuccessState() : _buildFeedbackForm()),
           ],

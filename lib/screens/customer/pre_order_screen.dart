@@ -13,7 +13,9 @@ import '../../widgets/category_chip.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/food_image.dart';
 import '../../widgets/quantity_stepper.dart';
+import '../../widgets/confirm_dialog.dart';
 import 'booking_checkout.dart';
+import 'booking_confirmation_screen.dart';
 import 'customer_order_actions.dart';
 
 /// Bước 2 của luồng đặt bàn qua app: "Đặt món trước".
@@ -85,7 +87,7 @@ class _PreOrderScreenState extends State<PreOrderScreen> with BookingHoldTimer {
   void _setQuantity(Food food, int quantity) {
     final lines = _order.items.where((i) => i.foodId == food.id).toList();
     if (lines.isEmpty) {
-      if (quantity > 0) addOneFood(_order, food);
+      if (quantity > 0) addFoodOrPickOptions(context, _order, food);
       return;
     }
     _order.updateQuantity(lines.first.id, quantity);
@@ -99,25 +101,27 @@ class _PreOrderScreenState extends State<PreOrderScreen> with BookingHoldTimer {
       return;
     }
     final navigator = Navigator.of(context);
-    final leave = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Huỷ đặt bàn?'),
-        content: Text(
-          '${reservation.tableNumber} đang được giữ cho bạn. Thoát lúc này sẽ huỷ lượt đặt bàn '
+    final messenger = ScaffoldMessenger.of(context);
+    final leave = await showConfirmDialog(
+      context,
+      title: 'Hủy đặt bàn?',
+      message: '${reservation.tableNumber} đang được giữ cho bạn. Thoát lúc này sẽ hủy lượt đặt bàn '
           'và nhường bàn cho khách khác.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Ở lại')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text('Huỷ đặt bàn', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
+      confirmLabel: 'Hủy đặt bàn',
+      cancelLabel: 'Ở lại',
+      destructive: true,
     );
-    if (leave != true) return;
-    checkout.release();
+    if (!leave) return;
+    // Hỏi server trước khi hủy: nếu cọc đã được nhận (vd chuyển khoản xong nhưng app chưa kịp
+    // biết) thì lượt đặt đã chốt, không hủy nữa mà mở màn thành công.
+    final confirmed = await checkout.releaseSafely();
+    if (confirmed != null) {
+      messenger.showSnackBar(const SnackBar(
+        content: Text('Nhà hàng đã nhận tiền cọc nên lượt đặt bàn của bạn vẫn được giữ.'),
+      ));
+      BookingConfirmationScreen.open(navigator, confirmed);
+      return;
+    }
     navigator.pop();
   }
 
@@ -237,7 +241,11 @@ class _PreOrderScreenState extends State<PreOrderScreen> with BookingHoldTimer {
                       child: _PreOrderFoodRow(
                         food: food,
                         quantity: _quantityOf(food),
-                        onAdd: () => addOneFood(_order, food),
+                        optionsSummary: _order.items
+                            .where((i) => i.foodId == food.id && i.optionsLabel.isNotEmpty)
+                            .map((i) => '${i.quantity}× ${i.optionsLabel}')
+                            .join(' · '),
+                        onAdd: () => addFoodOrPickOptions(context, _order, food),
                         onChanged: (q) => _setQuantity(food, q),
                       ),
                     );
@@ -276,6 +284,12 @@ class _PreOrderScreenState extends State<PreOrderScreen> with BookingHoldTimer {
                   AppFormatters.currency(_order.subtotal),
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.textPrimary),
                 ),
+                // Khách chỉ chuyển cọc 50% lúc đặt; phần còn lại trả tại quán.
+                if (!empty)
+                  Text(
+                    'Cọc 50%: ${AppFormatters.currency(BookingCheckout.depositFor(_order.subtotal))}',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textSecondary),
+                  ),
               ],
             ),
           ),
@@ -301,11 +315,15 @@ class _PreOrderFoodRow extends StatelessWidget {
   final VoidCallback onAdd;
   final ValueChanged<int> onChanged;
 
+  /// Size/topping đã chọn của món này (vd "1× Size M"); rỗng nếu không có.
+  final String optionsSummary;
+
   const _PreOrderFoodRow({
     required this.food,
     required this.quantity,
     required this.onAdd,
     required this.onChanged,
+    this.optionsSummary = '',
   });
 
   @override
@@ -325,6 +343,11 @@ class _PreOrderFoodRow extends StatelessWidget {
               const SizedBox(height: 4),
               Text(AppFormatters.currency(food.price),
                   style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+              if (optionsSummary.isNotEmpty)
+                Text(optionsSummary,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary)),
             ],
           ),
         ),

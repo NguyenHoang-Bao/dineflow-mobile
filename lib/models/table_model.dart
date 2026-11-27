@@ -11,7 +11,7 @@ extension TableStatusX on TableStatus {
       case TableStatus.reserved:
         return 'Đã đặt trước';
       case TableStatus.locked:
-        return 'Khoá';
+        return 'Đang khóa';
     }
   }
 }
@@ -60,11 +60,15 @@ class TableModel {
   final DateTime? servingSince;
   final String? currentOrderId;
 
-  /// Admin: bàn đang bị khoá tạm thời (NV Order không mở được).
+  /// Admin: bàn đang bị khóa tạm thời (NV Order không mở được).
   final bool isLocked;
 
-  /// Admin: bàn còn hoạt động (false = đã vô hiệu hoá / đã tháo).
+  /// Admin: bàn còn hoạt động (false = đã vô hiệu hóa / đã tháo).
   final bool isActive;
+
+  /// Mở được cho khách vãng lai ngay lúc này: còn hoạt động, không khóa, đang trống
+  /// (bàn "Đặt trước" đang giữ cho khách đặt nên không tính).
+  bool get canOpenForWalkIn => isActive && !isLocked && status == TableStatus.empty;
 
   /// Dùng bởi màn hình Đặt bàn: bàn có thể đặt theo ngày/giờ khách chọn.
   ///
@@ -95,22 +99,28 @@ class TableModel {
   ///
   /// `status` đã là trạng thái hiệu lực do server tính: bàn trống nhưng sắp có khách
   /// đặt trước thì server báo `reserved`.
+  ///
+  /// Server không có trạng thái "khóa" (chỉ có cờ `is_locked`) nên bàn Admin khóa tạm vẫn được
+  /// báo `empty`/`reserved` → trước đây NV Order thấy "Trống" và mở được. Ở đây đổi thành
+  /// [TableStatus.locked] để mọi màn hiện "Đang khóa"; bàn đang có khách thì giữ "Đang phục vụ".
   factory TableModel.fromApiJson(Map<String, dynamic> json) {
     final since = json['serving_since'] as String?;
+    final isLocked = json['is_locked'] as bool? ?? false;
+    final serverStatus = switch (json['status']) {
+      'serving' => TableStatus.serving,
+      'reserved' => TableStatus.reserved,
+      'locked' => TableStatus.locked,
+      _ => TableStatus.empty,
+    };
     return TableModel(
       id: json['id'].toString(),
       number: json['number'] as String,
       area: json['area'] as String,
       capacity: (json['capacity'] as num).toInt(),
-      status: switch (json['status']) {
-        'serving' => TableStatus.serving,
-        'reserved' => TableStatus.reserved,
-        'locked' => TableStatus.locked,
-        _ => TableStatus.empty,
-      },
+      status: isLocked && serverStatus != TableStatus.serving ? TableStatus.locked : serverStatus,
       servingSince: since == null ? null : DateTime.parse(since).toLocal(),
       currentOrderId: json['current_order_id']?.toString(),
-      isLocked: json['is_locked'] as bool? ?? false,
+      isLocked: isLocked,
       isActive: json['is_active'] as bool? ?? true,
       // available không có trong /tables — dùng null để phân biệt
       nextReservation: json['next_reservation'] is Map<String, dynamic>

@@ -11,6 +11,19 @@ class AppFormatters {
     return '${_currencyFormat.format(amount)}đ';
   }
 
+  /// Số tiền rút gọn cho nhãn biểu đồ, vd: 950đ, 129k, 1,8tr, 2tr.
+  static String compactCurrency(num amount) {
+    if (amount >= 1000000) {
+      final millions = (amount / 1000000 * 10).round() / 10;
+      final text = millions == millions.roundToDouble()
+          ? millions.toStringAsFixed(0)
+          : millions.toStringAsFixed(1).replaceAll('.', ',');
+      return '${text}tr';
+    }
+    if (amount >= 1000) return '${(amount / 1000).round()}k';
+    return '${amount.round()}đ';
+  }
+
   static String date(DateTime date) {
     return DateFormat('dd/MM/yyyy').format(date);
   }
@@ -50,6 +63,40 @@ class AppFormatters {
   /// Ngày rút gọn kèm thứ, vd: "T6 09/10".
   static String shortWeekdayDate(DateTime date) =>
       '${weekdayShort(date)} ${DateFormat('dd/MM').format(date)}';
+
+  /// Khoảng thời gian rút gọn cho ô nhỏ, vd "vừa vào", "25 phút", "1g20", "6 giờ".
+  static String elapsedShort(DateTime since) {
+    final diff = DateTime.now().difference(since);
+    if (diff.inMinutes < 1) return 'vừa vào';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} phút';
+    final minutes = diff.inMinutes % 60;
+    if (diff.inHours >= 3 || minutes == 0) return '${diff.inHours} giờ';
+    return '${diff.inHours}g${minutes.toString().padLeft(2, '0')}';
+  }
+
+  static const _accentGroups = {
+    'a': 'àáạảãâầấậẩẫăằắặẳẵ',
+    'e': 'èéẹẻẽêềếệểễ',
+    'i': 'ìíịỉĩ',
+    'o': 'òóọỏõôồốộổỗơờớợởỡ',
+    'u': 'ùúụủũưừứựửữ',
+    'y': 'ỳýỵỷỹ',
+    'd': 'đ',
+  };
+  static final Map<String, String> _accentMap = {
+    for (final e in _accentGroups.entries)
+      for (final ch in e.value.split('')) ch: e.key,
+  };
+
+  /// Chữ thường, bỏ dấu tiếng Việt: để tìm "com suon" ra "Cơm sườn".
+  /// Bỏ cả dấu dạng tổ hợp (U+0300–U+036F) mà một số bàn phím gõ ra.
+  static String searchKey(String text) => text
+      .toLowerCase()
+      .replaceAll(RegExp('[̀-ͯ]'), '')
+      .split('')
+      .map((ch) => _accentMap[ch] ?? ch)
+      .join()
+      .trim();
 
   /// Thời gian tương đối, vd: "Vừa xong", "5 phút trước", "2 giờ trước", "Hôm qua".
   static String relativeTime(DateTime dateTime) {

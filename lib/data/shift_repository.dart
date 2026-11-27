@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/api/api_client.dart';
 import '../models/shift.dart';
 
@@ -9,13 +11,25 @@ class ShiftRepository {
 
   final ApiClient _api;
 
+  /// Ca đang mở của thu ngân đang đăng nhập (null = chưa mở ca / chưa tải).
+  ///
+  /// Trước đây Tổng quan, Ca làm và Thanh toán mỗi màn tự tải một lần lúc mở nên lệch nhau:
+  /// mở ca xong Tổng quan vẫn ghi "Chưa mở", thu tiền xong tab Ca làm vẫn 0đ. Giờ mọi thao tác
+  /// (tải, mở, đóng ca) đều cập nhật giá trị này và các màn cùng nghe nó.
+  final ValueNotifier<Shift?> current = ValueNotifier<Shift?>(null);
+
+  /// Đã tải ca hiện tại ít nhất một lần (để phân biệt "chưa mở ca" với "chưa biết").
+  bool loaded = false;
+
   /// Lấy ca đang mở của thu ngân hiện tại.
   /// Trả về null nếu chưa mở ca.
   Future<Shift?> fetchCurrent() async {
     final res = await _api.get('/shifts/current');
     // Server trả data: null khi chưa có ca đang mở
-    if (res.data == null) return null;
-    return Shift.fromApiJson(res.map);
+    final shift = res.data == null ? null : Shift.fromApiJson(res.map);
+    loaded = true;
+    current.value = shift;
+    return shift;
   }
 
   /// Admin: các ca mở trong ngày [date], mới nhất trước (báo cáo ca).
@@ -32,7 +46,10 @@ class ShiftRepository {
     final res = await _api.post('/shifts', body: {
       'opening_cash': openingCash,
     });
-    return Shift.fromApiJson(res.map);
+    final shift = Shift.fromApiJson(res.map);
+    loaded = true;
+    current.value = shift;
+    return shift;
   }
 
   /// Đóng ca: nhập tiền mặt đếm được.
@@ -45,6 +62,7 @@ class ShiftRepository {
     final res = await _api.patch('/shifts/$id/close', body: {
       'closing_cash_counted': closingCashCounted,
     });
+    current.value = null;
     return Shift.fromApiJson(res.map);
   }
 }

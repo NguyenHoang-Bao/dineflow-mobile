@@ -1,4 +1,5 @@
 import '../core/api/api_client.dart';
+import '../core/api/api_exception.dart';
 import '../models/invoice.dart';
 import '../models/order_item.dart';
 import '../models/reservation.dart';
@@ -72,6 +73,29 @@ class ReservationRepository {
         '${date.day.toString().padLeft(2, '0')}';
     final res = await _api.get('/reservations', query: {'date': day});
     return [for (final r in res.list) Reservation.fromApiJson(r)];
+  }
+
+  /// Lượt đặt "Sắp tới" gần nhất hôm nay của từng bàn (khóa = id bàn), bỏ lượt đã quá
+  /// 15 phút chờ. Dùng để nhắc "Khách đặt 21:00" trên ô bàn (Admin, Chuyển bàn).
+  /// Lỗi tải lịch đặt không được làm hỏng màn gọi → trả map rỗng.
+  Future<Map<String, Reservation>> fetchUpcomingTodayByTable() async {
+    try {
+      final list = await fetchForDate(DateTime.now());
+      final cutoff = DateTime.now().subtract(const Duration(minutes: 15));
+      final upcoming = list
+          .where((r) => r.status == ReservationStatus.upcoming && r.dateTime.isAfter(cutoff))
+          .toList()
+        ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+      final map = <String, Reservation>{};
+      for (final r in upcoming) {
+        for (final id in r.tableIds) {
+          map.putIfAbsent(id, () => r);
+        }
+      }
+      return map;
+    } on ApiException {
+      return {};
+    }
   }
 
   /// Nhận bàn khi khách đặt trước tới quán (NV Order, Thu ngân).

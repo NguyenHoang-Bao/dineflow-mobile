@@ -8,6 +8,7 @@ import '../../widgets/account_identity_card.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_header_band.dart';
 import '../../widgets/app_setting_tile.dart';
+import '../../widgets/confirm_dialog.dart';
 import '../../widgets/theme_mode_tile.dart';
 import 'order_staff_shell.dart';
 
@@ -78,7 +79,16 @@ class StaffProfileScreen extends StatelessWidget {
                       color: AppColors.error,
                       iconBackground: AppColors.surfaceAlt,
                       iconShape: BoxShape.rectangle,
-                      onTap: signOut,
+                      onTap: () async {
+                        final ok = await showConfirmDialog(
+                          context,
+                          title: 'Đăng xuất?',
+                          message: 'Bạn sẽ cần đăng nhập lại để tiếp tục nhận order.',
+                          confirmLabel: 'Đăng xuất',
+                          destructive: true,
+                        );
+                        if (ok) await signOut();
+                      },
                     ),
                   ],
                 )),

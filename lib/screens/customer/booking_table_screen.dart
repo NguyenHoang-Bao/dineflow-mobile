@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/restaurant_info.dart';
 import '../../core/api/api_exception.dart';
 import '../../data/app_data.dart';
 import '../../data/reservation_repository.dart';
@@ -112,10 +113,7 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
   late final List<DateTime> _upcomingDays =
       List.generate(30, (i) => DateTime.now().add(Duration(days: i)));
 
-  static const _timeSlots = [
-    '11:00', '11:30', '12:00', '12:30', '13:00', '13:30', '17:00', '17:30',
-    '18:00', '18:30', '19:00', '19:30', '20:00', '20:30', '21:00',
-  ];
+  static const _timeSlots = RestaurantInfo.bookingSlots;
 
   List<TableModel> get _selectedTables {
     final source = _availabilityList ?? MockData.tables;
@@ -320,9 +318,9 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
     final picked = AppCart.customer.totalQuantity;
     final holdHint = picked > 0
         ? 'Sau khi giữ bàn, $picked món bạn đã chọn sẽ có sẵn ở bước Đặt món. '
-            'Bạn có $holdMinutes phút để xác nhận và thanh toán.'
+            'Bạn có $holdMinutes phút để xác nhận và chuyển cọc 50%.'
         : 'Sau khi giữ bàn, bạn có $holdMinutes phút để đặt món trước '
-            '(không bắt buộc) và thanh toán.';
+            '(không bắt buộc, cọc 50% tiền món) và xác nhận.';
 
     var order = 0;
     Widget step(Widget child) => FadeSlideIn.staggered(index: order++, child: child);
@@ -498,7 +496,7 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
                     'Đặt online tối đa $_maxGuestCount khách/lượt. Nhóm đông hơn vui lòng gọi '
-                    '1900 1234 để nhà hàng sắp xếp riêng.',
+                    '${RestaurantInfo.hotline} để nhà hàng sắp xếp riêng.',
                     style: TextStyle(
                         fontSize: 12, height: 1.4, color: AppColors.textSecondary),
                   ),
@@ -553,7 +551,7 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
         const SizedBox(height: 10),
         // Chờ chọn giờ hoặc đang tải → hiện thông báo tương ứng
         if (_selectedTime == null) ...[
-          _InfoNotice(
+          const _InfoNotice(
             icon: Icons.schedule_rounded,
             message: 'Chọn giờ đến để xem bàn trống chính xác',
           ),
@@ -646,15 +644,20 @@ class _BookingTableScreenState extends State<BookingTableScreen> {
                     ),
                   ),
                 )
+              // Bàn trống đủ chỗ cho cả nhóm: nhãn chữ "Đủ chỗ" thay cho dấu ✓ (dấu ✓ trên mọi bàn
+              // trống nhìn như đã chọn hết bàn, dễ nhầm với số thứ tự bàn đã chọn).
               else if (canSelect && suitable)
                 Positioned(
                   top: 6,
                   right: 6,
                   child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration:
-                        BoxDecoration(color: AppColors.success, shape: BoxShape.circle),
-                    child: Icon(Icons.check, size: 10, color: AppColors.textOnDark),
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.successBg,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text('Đủ chỗ',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: AppColors.success)),
                   ),
                 ),
             ],

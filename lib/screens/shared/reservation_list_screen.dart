@@ -4,13 +4,16 @@ import '../../app/routes.dart';
 import '../../core/api/api_exception.dart';
 import '../../core/session/session_store.dart';
 import '../../data/app_data.dart';
+import '../../data/mock_data.dart';
 import '../../data/reservation_repository.dart';
 import '../../models/reservation.dart';
+import '../../models/table_model.dart';
 import '../../models/user.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_header_band.dart';
+import '../../widgets/confirm_dialog.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/status_badge.dart';
 
@@ -25,7 +28,11 @@ import '../../widgets/status_badge.dart';
 ///
 /// Quyền thật sự do backend kiểm tra (middleware `role:`); nút ẩn/hiện ở đây chỉ để giao diện gọn.
 class ReservationListScreen extends StatefulWidget {
-  const ReservationListScreen({super.key});
+  /// Mỗi lần giá trị đổi thì tải lại (tab "Đặt bàn" của NV Order nằm trong IndexedStack nên
+  /// không tự tải lại khi quay về tab).
+  final Listenable? refreshSignal;
+
+  const ReservationListScreen({super.key, this.refreshSignal});
 
   @override
   State<ReservationListScreen> createState() => _ReservationListScreenState();
@@ -52,12 +59,29 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
   String? _busyId;
 
   UserRole? get _role => SessionStore.instance.user?.role;
+  // NV Order (người đón khách) và Thu ngân đều nhận bàn được; hủy lượt đặt (khách mất cọc)
+  // chỉ Thu ngân / Admin (nhóm chốt 27/11).
   bool get _canCheckIn => _role == UserRole.orderStaff || _role == UserRole.cashier;
+  bool get _canCancel => _role != UserRole.orderStaff;
 
   @override
   void initState() {
     super.initState();
+    widget.refreshSignal?.addListener(_load);
+    // Dựng lại khi trạng thái bàn đổi: nút Nhận bàn phụ thuộc bàn còn khách hay đã trống.
+    MockData.tablesVersion.addListener(_onTablesChanged);
     _load();
+  }
+
+  @override
+  void dispose() {
+    widget.refreshSignal?.removeListener(_load);
+    MockData.tablesVersion.removeListener(_onTablesChanged);
+    super.dispose();
+  }
+
+  void _onTablesChanged() {
+    if (mounted) setState(() {});
   }
 
   Future<void> _load() async {
@@ -65,6 +89,8 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
       _loading = true;
       _error = null;
     });
+    // Trạng thái bàn mới nhất để biết bàn của lượt đặt còn khách hay không (chạy song song).
+    if (_canCheckIn) AppData.refresh({LiveSource.tables}, force: true);
     try {
       final list = await _repo.fetchForDate(_date);
       if (mounted) setState(() => _items = list);
@@ -95,7 +121,8 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
 
   Future<void> _checkIn(Reservation r) async {
     final ok = await _confirm(
-      title: 'Nhận bàn ${r.tableNumber}?',
+      // "Nhận Bàn 2 cho khách?" (trước đây "Nhận bàn Bàn 2?" bị lặp chữ).
+      title: 'Nhận ${r.tableNumber} cho khách?',
       body: 'Khách ${r.customerName ?? ''} · ${r.guestCount} khách · ${AppFormatters.time(r.dateTime)}.\n'
           '${r.preOrderItems.isEmpty ? 'Không có món đặt trước.' : 'Món đặt trước sẽ được thêm sẵn vào đơn.'}',
       action: 'Nhận bàn',
@@ -150,33 +177,44 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
     required String body,
     required String action,
     bool destructive = false,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(body),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Không')),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(action, style: TextStyle(color: destructive ? AppColors.error : AppColors.textPrimary)),
-          ),
-        ],
-      ),
-    );
-    return result == true;
+  }) =>
+      showConfirmDialog(
+        context,
+        title: title,
+        message: body,
+        confirmLabel: action,
+        cancelLabel: 'Không',
+        destructive: destructive,
+      );
+
+  /// Sắp tới lên đầu (theo giờ), rồi đã hoàn thành, đã hủy xuống cuối — lượt cần xử lý
+  /// không bị lượt đã hủy đẩy xuống dưới.
+  static List<Reservation> _sorted(List<Reservation> list) {
+    int rank(ReservationStatus s) => switch (s) {
+          ReservationStatus.upcoming => 0,
+          ReservationStatus.completed => 1,
+          ReservationStatus.cancelled => 2,
+        };
+    return [...list]
+      ..sort((a, b) {
+        final r = rank(a.status).compareTo(rank(b.status));
+        return r != 0 ? r : a.dateTime.compareTo(b.dateTime);
+      });
   }
 
   @override
   Widget build(BuildContext context) {
     final isToday = DateUtils.isSameDay(_date, DateTime.now());
+    // Admin: các màn phụ đều dùng AppBar thường; NV Order / Thu ngân dùng dải vàng như
+    // các màn khác của họ.
+    final isAdmin = _role == UserRole.admin;
 
     return Scaffold(
       backgroundColor: AppColors.surfaceAlt,
+      appBar: isAdmin ? AppBar(title: const Text('Lịch đặt bàn')) : null,
       body: Column(
         children: [
-          const AppHeaderBand(title: 'Lịch đặt bàn', subtitle: 'Khách đặt trước theo ngày'),
+          if (!isAdmin) const AppHeaderBand(title: 'Lịch đặt bàn', subtitle: 'Khách đặt trước theo ngày'),
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
             child: Row(
@@ -205,6 +243,30 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
         ],
       ),
     );
+  }
+
+  /// Lý do chưa nhận bàn được dù đã tới giờ: bàn còn khách cũ / bị khóa / ngừng phục vụ.
+  /// Server cũng chặn các trường hợp này; báo trước để khách đặt khỏi phải đứng chờ.
+  ({String hint, TableModel? busyTable})? _tableBlock(Reservation r) {
+    final tables = [
+      for (final id in r.tableIds) ...MockData.tables.where((t) => t.id == id),
+    ];
+    for (final t in tables) {
+      if (!t.isActive) {
+        return (hint: '${t.number} đã ngừng phục vụ. Nhờ Admin đổi bàn khác cho khách.', busyTable: null);
+      }
+      if (t.isLocked) {
+        return (hint: '${t.number} đang bị khóa tạm. Nhờ Admin mở khóa rồi mới nhận bàn.', busyTable: null);
+      }
+      if (t.status == TableStatus.serving) {
+        return (
+          hint: '${t.number} vẫn còn khách đang ngồi. Thanh toán xong cho khách hiện tại, hoặc chuyển họ '
+              'sang bàn trống rồi mới nhận bàn.',
+          busyTable: t,
+        );
+      }
+    }
+    return null;
   }
 
   /// Giải thích vì sao chưa / không còn nút Nhận bàn.
@@ -238,7 +300,7 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
       );
     }
 
-    final list = _items ?? const <Reservation>[];
+    final list = _sorted(_items ?? const <Reservation>[]);
     return RefreshIndicator(
       onRefresh: _load,
       child: list.isEmpty
@@ -262,12 +324,26 @@ class _ReservationListScreenState extends State<ReservationListScreen> {
                 final r = list[i];
                 final upcoming = r.status == ReservationStatus.upcoming;
                 final inWindow = _inCheckInWindow(r, DateTime.now());
-                return _ReservationCard(
-                  reservation: r,
-                  busy: _busyId == r.id,
-                  checkInHint: upcoming && _canCheckIn && !inWindow ? _checkInHint(r) : null,
-                  onCheckIn: upcoming && inWindow && _canCheckIn && _busyId == null ? () => _checkIn(r) : null,
-                  onCancel: upcoming && _busyId == null ? () => _cancel(r) : null,
+                final block = upcoming && inWindow && _canCheckIn ? _tableBlock(r) : null;
+                final busyTable = block?.busyTable;
+                final canResolve = busyTable != null && _role == UserRole.orderStaff;
+                return Opacity(
+                  // Lượt đã xong / đã hủy chỉ để tham khảo → làm mờ cho lượt cần xử lý nổi lên.
+                  opacity: upcoming ? 1 : 0.6,
+                  child: _ReservationCard(
+                    reservation: r,
+                    busy: _busyId == r.id,
+                    checkInHint: upcoming && _canCheckIn && !inWindow ? _checkInHint(r) : block?.hint,
+                    onCheckIn: upcoming && inWindow && _canCheckIn && block == null && _busyId == null
+                        ? () => _checkIn(r)
+                        : null,
+                    // NV Order: mở nhanh Chuyển bàn cho khách đang ngồi ở bàn của lượt đặt.
+                    resolveLabel: canResolve ? 'Chuyển khách' : null,
+                    onResolve: canResolve
+                        ? () => Navigator.of(context).pushNamed(AppRoutes.staffTransferTable, arguments: busyTable.id)
+                        : null,
+                    onCancel: upcoming && _canCancel && _busyId == null ? () => _cancel(r) : null,
+                  ),
                 );
               },
             ),
@@ -282,12 +358,18 @@ class _ReservationCard extends StatelessWidget {
   final VoidCallback? onCheckIn;
   final VoidCallback? onCancel;
 
+  /// Nút xử lý thay cho "Nhận bàn" khi bàn chưa nhận được (vd "Chuyển khách").
+  final String? resolveLabel;
+  final VoidCallback? onResolve;
+
   const _ReservationCard({
     required this.reservation,
     required this.busy,
     required this.checkInHint,
     required this.onCheckIn,
     required this.onCancel,
+    this.resolveLabel,
+    this.onResolve,
   });
 
   (Color, Color) get _statusColors => switch (reservation.status) {
@@ -354,7 +436,7 @@ class _ReservationCard extends StatelessWidget {
             const SizedBox(height: 6),
             Text(checkInHint!, style: TextStyle(fontSize: 12.5, color: AppColors.warning, fontWeight: FontWeight.w600)),
           ],
-          if (onCheckIn != null || onCancel != null) ...[
+          if (onCheckIn != null || onCancel != null || onResolve != null) ...[
             const SizedBox(height: 12),
             Row(
               children: [
@@ -367,7 +449,17 @@ class _ReservationCard extends StatelessWidget {
                       onPressed: onCancel,
                     ),
                   ),
-                if (onCancel != null && onCheckIn != null) const SizedBox(width: 10),
+                if (onCancel != null && (onCheckIn != null || onResolve != null)) const SizedBox(width: 10),
+                if (onResolve != null && onCheckIn == null)
+                  Expanded(
+                    child: AppButton(
+                      label: resolveLabel ?? 'Xử lý',
+                      icon: Icons.swap_horiz_rounded,
+                      variant: AppButtonVariant.dark,
+                      dense: true,
+                      onPressed: onResolve,
+                    ),
+                  ),
                 if (onCheckIn != null)
                   Expanded(
                     child: AppButton(

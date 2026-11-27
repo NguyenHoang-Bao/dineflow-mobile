@@ -122,7 +122,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(child: AppPageHeader(title: 'Thông báo')),
+                  const Expanded(child: AppPageHeader(title: 'Thông báo')),
                   if (hasUnread)
                     TextButton(
                       onPressed: _isMarkingAll ? null : _markAllRead,

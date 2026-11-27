@@ -18,7 +18,10 @@ class StaffTableTile extends StatelessWidget {
   final VoidCallback? onTap;
   final bool selected;
 
-  const StaffTableTile({super.key, required this.table, this.onTap, this.selected = false});
+  /// Dòng nhắc thay cho dòng trạng thái (vd "Đặt 21:00" ở màn Chuyển bàn); null = như cũ.
+  final String? alert;
+
+  const StaffTableTile({super.key, required this.table, this.onTap, this.selected = false, this.alert});
 
   @override
   Widget build(BuildContext context) {
@@ -86,9 +89,9 @@ class StaffTableTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         // Bàn đặt trước: kèm giờ khách tới để nhân viên biết ngay
-                        table.status == TableStatus.reserved && table.nextReservation != null
+                        alert ?? (table.status == TableStatus.reserved && table.nextReservation != null
                             ? '${tableStatusShortLabel(table.status)} ${AppFormatters.time(table.nextReservation!.dateTime)}'
-                            : tableStatusShortLabel(table.status),
+                            : tableStatusShortLabel(table.status)),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:
@@ -140,7 +143,10 @@ class StaffTableGrid extends StatelessWidget {
   final void Function(TableModel table)? onTap;
   final bool Function(TableModel table)? isSelected;
 
-  const StaffTableGrid({super.key, required this.tables, this.onTap, this.isSelected});
+  /// Dòng nhắc riêng cho từng ô (xem [StaffTableTile.alert]).
+  final String? Function(TableModel table)? alertOf;
+
+  const StaffTableGrid({super.key, required this.tables, this.onTap, this.isSelected, this.alertOf});
 
   @override
   Widget build(BuildContext context) {
@@ -165,6 +171,7 @@ class StaffTableGrid extends StatelessWidget {
           child: StaffTableTile(
             table: table,
             selected: isSelected?.call(table) ?? false,
+            alert: alertOf?.call(table),
             onTap: onTap == null ? null : () => onTap!(table),
           ),
         );
@@ -204,7 +211,8 @@ class StaffTableLegend extends StatelessWidget {
           StatusLegendItem(
             tableTileVisual(status).background,
             tableStatusShortLabel(status),
-            borderColor: status == TableStatus.empty ? AppColors.textSecondary : null,
+            borderColor:
+                status == TableStatus.empty || status == TableStatus.locked ? AppColors.textSecondary : null,
           ),
       ],
     );

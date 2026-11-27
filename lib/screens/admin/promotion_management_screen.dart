@@ -8,6 +8,7 @@ import '../../utils/formatters.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_text_field.dart';
+import '../../widgets/confirm_dialog.dart';
 import '../../widgets/status_badge.dart';
 
 /// Quản lý khuyến mãi / voucher.
@@ -25,6 +26,9 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
   List<Promotion> _promos = [];
   bool _loading = true;
   String? _error;
+
+  /// Lọc theo nhóm trạng thái; null = tất cả.
+  _PromoGroup? _filter;
 
   @override
   void initState() {
@@ -46,35 +50,16 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
 
   Future<void> _toggleActive(Promotion promo) async {
     final isActive = promo.isActive;
-    final action = isActive ? 'tắt' : 'bật';
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('${isActive ? "Tắt" : "Bật"} khuyến mãi', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
-        content: Text(
-          'Bạn muốn $action "${promo.name}"?\n${isActive ? "Khuyến mãi sẽ hết hiệu lực ngay lập tức." : "Khuyến mãi sẽ được kích hoạt trở lại."}',
-          style: TextStyle(fontSize: 13.5, color: AppColors.textSecondary, height: 1.5),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        actions: [
-          OutlinedButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), side: BorderSide(color: AppColors.border), foregroundColor: AppColors.textPrimary),
-            child: const Text('Huỷ'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: isActive ? AppColors.error : AppColors.success,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(isActive ? 'Tắt' : 'Bật'),
-          ),
-        ],
-      ),
+    final ok = await showConfirmDialog(
+      context,
+      title: '${isActive ? "Tắt" : "Bật"} khuyến mãi',
+      message: 'Bạn muốn ${isActive ? 'tắt' : 'bật'} "${promo.name}"?\n'
+          '${isActive ? "Khách không dùng được mã ${promo.code} nữa, kể cả khi còn hạn." : "Mã ${promo.code} dùng lại được trong thời gian áp dụng."}',
+      confirmLabel: isActive ? 'Tắt' : 'Bật',
+      destructive: isActive,
+      confirmColor: isActive ? null : AppColors.success,
     );
-    if (ok != true) return;
+    if (!ok) return;
     try {
       final updated = await _repo.togglePromotionActive(promo.id);
       setState(() {
@@ -140,9 +125,30 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
   }
 
   void _snack(String msg, {bool isError = false}) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(msg), backgroundColor: isError ? AppColors.error : null));
+  }
+
+  /// Nhóm hiển thị của khuyến mãi: "Đã tắt" (admin tắt) tách khỏi "Đã hết hạn" (quá ngày).
+  static _PromoGroup _groupOf(Promotion p) {
+    if (p.endDate.isBefore(DateTime.now())) return _PromoGroup.expired;
+    if (!p.isActive) return _PromoGroup.off;
+    return p.status == PromotionStatus.upcoming ? _PromoGroup.upcoming : _PromoGroup.active;
+  }
+
+  /// Đang áp dụng → Sắp diễn ra → Đã tắt → Hết hạn; trong nhóm: sắp hết hạn trước.
+  List<Promotion> get _visible {
+    final list = _promos.where((p) => _filter == null || _groupOf(p) == _filter).toList()
+      ..sort((a, b) {
+        final g = _groupOf(a).index.compareTo(_groupOf(b).index);
+        if (g != 0) return g;
+        return _groupOf(a) == _PromoGroup.expired
+            ? b.endDate.compareTo(a.endDate) // hết hạn: mới hết trước
+            : a.endDate.compareTo(b.endDate);
+      });
+    return list;
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────
@@ -151,7 +157,7 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Quản lý khuyến mãi', style: TextStyle(fontWeight: FontWeight.w800)),
+        title: const Text('Khuyến mãi', style: TextStyle(fontWeight: FontWeight.w800)),
         actions: [
           IconButton(icon: const Icon(Icons.add), tooltip: 'Thêm khuyến mãi', onPressed: () => _showForm()),
         ],
@@ -170,22 +176,65 @@ class _PromotionManagementScreenState extends State<PromotionManagementScreen> {
                   ]))
                 : _promos.isEmpty
                     ? Center(child: Text('Chưa có khuyến mãi nào', style: TextStyle(color: AppColors.textSecondary)))
-                    : RefreshIndicator(
-                        onRefresh: _load,
-                        child: ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 80),
-                          itemCount: _promos.length,
-                          separatorBuilder: (_, __) => const SizedBox(height: 12),
-                          itemBuilder: (ctx, i) => _PromoTile(
-                            promo: _promos[i],
-                            onEdit: () => _showForm(_promos[i]),
-                            onToggle: () => _toggleActive(_promos[i]),
+                    : Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: Row(children: [
+                                for (final g in <_PromoGroup?>[null, ..._PromoGroup.values])
+                                  Padding(
+                                    padding: const EdgeInsets.only(right: 8),
+                                    child: FilterChip(
+                                      label: Text('${g?.label ?? 'Tất cả'} '
+                                          '(${g == null ? _promos.length : _promos.where((p) => _groupOf(p) == g).length})'),
+                                      selected: _filter == g,
+                                      onSelected: (_) => setState(() => _filter = g),
+                                    ),
+                                  ),
+                              ]),
+                            ),
                           ),
-                        ),
+                          Expanded(
+                            child: Builder(builder: (context) {
+                              final promos = _visible;
+                              if (promos.isEmpty) {
+                                return Center(
+                                  child: Text('Không có khuyến mãi nào ở mục này',
+                                      style: TextStyle(color: AppColors.textSecondary)),
+                                );
+                              }
+                              return RefreshIndicator(
+                                onRefresh: _load,
+                                child: ListView.separated(
+                                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
+                                  itemCount: promos.length,
+                                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                                  itemBuilder: (ctx, i) => _PromoTile(
+                                    promo: promos[i],
+                                    onEdit: () => _showForm(promos[i]),
+                                    onToggle: () => _toggleActive(promos[i]),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ),
+                        ],
                       ),
       ),
     );
   }
+}
+
+enum _PromoGroup {
+  active('Đang áp dụng'),
+  upcoming('Sắp diễn ra'),
+  off('Đã tắt'),
+  expired('Hết hạn');
+
+  final String label;
+  const _PromoGroup(this.label);
 }
 
 // ── Tile khuyến mãi ─────────────────────────────────────────────────────────
@@ -214,67 +263,83 @@ class _PromoTile extends StatelessWidget {
     final canToggle = promo.endDate.isAfter(DateTime.now());
     final isActive = promo.isActive;
 
+    // Gọn: bỏ hàng nút riêng ở dưới. Chạm thẻ = Sửa / Gia hạn; công tắc ở góc = Bật / Tắt.
     return FadeSlideIn(
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: AppColors.border),
-          boxShadow: AppColors.softShadow,
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          // Dòng 1: tên + trạng thái
-          Row(children: [
-            Expanded(child: Text(promo.name, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14))),
-            StatusBadge(label: _statusLabel, color: _statusColor, background: _statusColor.withValues(alpha: 0.12)),
-          ]),
-          const SizedBox(height: 8),
-          // Dòng 2: mã + % giảm
-          Row(children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(color: AppColors.surfaceAlt, borderRadius: BorderRadius.circular(8)),
-              child: Text(promo.code, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.5)),
+      child: Material(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onEdit,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppColors.border),
             ),
-            const SizedBox(width: 10),
-            Text('Giảm ${promo.percent}%', style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
-            if (promo.maxDiscount != null) ...[
-              const SizedBox(width: 6),
-              Text('(tối đa ${AppFormatters.currency(promo.maxDiscount!)})', style: TextStyle(fontSize: 11.5, color: AppColors.textSecondary)),
-            ],
-          ]),
-          if (promo.minOrderAmount > 0) ...[
-            const SizedBox(height: 4),
-            Text('Đơn tối thiểu: ${AppFormatters.currency(promo.minOrderAmount)}', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-          ],
-          const SizedBox(height: 6),
-          // Dòng 3: thời gian
-          Row(children: [
-            Icon(Icons.calendar_today_outlined, size: 13, color: AppColors.textSecondary),
-            const SizedBox(width: 4),
-            Text('${AppFormatters.date(promo.startDate)} – ${AppFormatters.date(promo.endDate)}', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-          ]),
-          // Actions
-          Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-            TextButton.icon(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined, size: 16),
-              label: const Text('Sửa'),
-              style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6)),
-            ),
-            if (canToggle)
-              TextButton.icon(
-                onPressed: onToggle,
-                icon: Icon(isActive ? Icons.pause_circle_outline_rounded : Icons.play_circle_outline_rounded, size: 16),
-                label: Text(isActive ? 'Tắt' : 'Bật'),
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  foregroundColor: isActive ? AppColors.error : AppColors.success,
+            child: Row(children: [
+              // Ô % giảm nổi bật bên trái
+              Container(
+                width: 52,
+                height: 52,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isActive && canToggle ? AppColors.primaryLight : AppColors.surfaceAlt,
+                  borderRadius: BorderRadius.circular(12),
                 ),
+                child: Text('-${promo.percent}%',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
               ),
-          ]),
-        ]),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(children: [
+                    Flexible(
+                      child: Text(promo.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5, color: AppColors.textPrimary)),
+                    ),
+                    const SizedBox(width: 6),
+                    StatusBadge(label: _statusLabel, color: _statusColor, background: _statusColor.withValues(alpha: 0.12)),
+                  ]),
+                  const SizedBox(height: 2),
+                  Text(
+                    [
+                      promo.code,
+                      if (promo.maxDiscount != null) 'tối đa ${AppFormatters.currency(promo.maxDiscount!)}',
+                      if (promo.minOrderAmount > 0) 'đơn từ ${AppFormatters.currency(promo.minOrderAmount)}',
+                    ].join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                  ),
+                  Text(
+                    '${AppFormatters.date(promo.startDate)} – ${AppFormatters.date(promo.endDate)}'
+                    // Hết hạn thì việc hay làm nhất là đổi ngày để chạy lại → nói rõ chạm để gia hạn.
+                    '${canToggle ? '' : ' · chạm để gia hạn'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                ]),
+              ),
+              if (canToggle)
+                Tooltip(
+                  message: isActive ? 'Tắt khuyến mãi' : 'Bật khuyến mãi',
+                  child: Transform.scale(
+                    scale: 0.85,
+                    child: Switch.adaptive(value: isActive, onChanged: (_) => onToggle()),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Icon(Icons.update_rounded, color: AppColors.textSecondary),
+                ),
+            ]),
+          ),
+        ),
       ),
     );
   }
@@ -316,7 +381,11 @@ class _PromotionFormSheetState extends State<_PromotionFormSheet> {
     );
     if (picked == null) return;
     setState(() {
-      if (isFrom) _from = picked; else _to = picked;
+      if (isFrom) {
+        _from = picked;
+      } else {
+        _to = picked;
+      }
     });
   }
 

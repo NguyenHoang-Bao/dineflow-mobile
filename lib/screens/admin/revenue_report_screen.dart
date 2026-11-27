@@ -85,9 +85,32 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
       ),
     );
     if (picked == null || !mounted) return;
+    // Server chỉ trả tối đa 31 ngày mỗi lần; báo ngay thay vì gửi rồi nhận lỗi.
+    final days = DateUtils.dateOnly(picked.end).difference(DateUtils.dateOnly(picked.start)).inDays + 1;
+    if (days > _maxRangeDays) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text('Chỉ xem được tối đa $_maxRangeDays ngày mỗi lần (bạn chọn $days ngày). '
+              'Muốn xem dài hơn, dùng "6 tuần" / "6 tháng" hoặc Xuất Excel.'),
+          backgroundColor: AppColors.warning,
+        ));
+      return;
+    }
     setState(() => _customRange = picked);
     await _loadCustomRange();
   }
+
+  /// Khớp ReportController::MAX_RANGE_DAYS ở backend.
+  static const _maxRangeDays = 31;
+
+  /// Món bán chạy: nhiều phần nhất trước; bằng số phần thì món mang về nhiều tiền hơn đứng trước
+  /// (server chỉ sắp theo số lượng nên các món bằng nhau đứng lộn xộn).
+  static List<TopFoodStat> _rankTopFoods(List<TopFoodStat> foods) => [...foods]
+    ..sort((a, b) {
+      final q = b.soldQuantity.compareTo(a.soldQuantity);
+      return q != 0 ? q : b.revenue.compareTo(a.revenue);
+    });
 
   Future<void> _loadCustomRange() async {
     final range = _customRange;
@@ -134,6 +157,7 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
     final report = MockData.report;
     final data = _data(report);
     final totalRevenue = data.fold<double>(0, (sum, p) => sum + p.amount);
+    final topFoods = _rankTopFoods(report.topFoods);
 
     return Scaffold(
       appBar: AppBar(
@@ -283,7 +307,13 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              SectionHeader(title: 'Món bán chạy · ${report.topFoodsDays} ngày'),
+              SectionHeader(title: 'Món bán chạy · ${report.topFoodsDays} ngày gần nhất'),
+              // Phần này không đổi theo bộ lọc ở trên → nói rõ để khỏi tưởng số liệu lệch kỳ.
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('Không phụ thuộc khoảng thời gian chọn ở trên',
+                    style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              ),
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -294,7 +324,7 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
                 ),
                 child: Column(
                   children: [
-                    for (int i = 0; i < report.topFoods.length; i++) ...[
+                    for (int i = 0; i < topFoods.length; i++) ...[
                       FadeSlideIn.staggered(
                         index: i,
                         child: Padding(
@@ -318,14 +348,14 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text(report.topFoods[i].foodName,
+                                    Text(topFoods[i].foodName,
                                         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5)),
-                                    Text('Đã bán ${report.topFoods[i].soldQuantity}',
+                                    Text('Đã bán ${topFoods[i].soldQuantity}',
                                         style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
                                   ],
                                 ),
                               ),
-                              Text(AppFormatters.currency(report.topFoods[i].revenue),
+                              Text(AppFormatters.currency(topFoods[i].revenue),
                                   style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 12.5,
@@ -334,9 +364,9 @@ class _RevenueReportScreenState extends State<RevenueReportScreen> {
                           ),
                         ),
                       ),
-                      if (i != report.topFoods.length - 1) const Divider(height: 1),
+                      if (i != topFoods.length - 1) const Divider(height: 1),
                     ],
-                    if (report.topFoods.isEmpty)
+                    if (topFoods.isEmpty)
                       Padding(
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         child: Text('Chưa có dữ liệu món bán chạy',
@@ -470,7 +500,7 @@ class _ExportSheetState extends State<_ExportSheet> {
             Text('Chưa có doanh thu để xuất.', style: TextStyle(color: AppColors.textSecondary))
           else
             DropdownButtonFormField<String>(
-              value: _type == 'month' ? _month : _year,
+              initialValue: _type == 'month' ? _month : _year,
               decoration: InputDecoration(
                 labelText: _type == 'month' ? 'Tháng có doanh thu' : 'Năm có doanh thu',
               ),

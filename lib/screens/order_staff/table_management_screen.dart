@@ -49,10 +49,10 @@ class TableManagementScreen extends StatelessWidget {
                     children: [
                       const FadeSlideIn(offsetY: 8, child: StaffTableLegend()),
                       const SizedBox(height: 18),
-                      for (final area in MockData.areas) ...[
+                      for (final area in MockData.activeAreas) ...[
                         StaffAreaTitle(area),
                         StaffTableGrid(
-                          tables: MockData.tables.where((t) => t.area == area).toList(),
+                          tables: MockData.activeTables.where((t) => t.area == area).toList(),
                           onTap: (table) => Navigator.of(context)
                               .pushNamed(AppRoutes.staffTableDetail, arguments: table.id),
                         ),

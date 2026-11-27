@@ -237,7 +237,10 @@ class AppRoutes {
         page = PaymentScreen(orderId: args as String);
         break;
       case cashierInvoice:
-        page = InvoiceScreen(invoice: args as Invoice);
+        // Vừa thu tiền: InvoiceScreenArgs(afterPayment: true); xem lại từ Lịch sử: Invoice.
+        page = args is InvoiceScreenArgs
+            ? InvoiceScreen(invoice: args.invoice, afterPayment: args.afterPayment, memberName: args.memberName, notice: args.notice)
+            : InvoiceScreen(invoice: args as Invoice);
         break;
       case cashierShift:
         page = const ShiftScreen();

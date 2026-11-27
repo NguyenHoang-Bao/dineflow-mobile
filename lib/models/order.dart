@@ -10,8 +10,10 @@ extension OrderStatusX on OrderStatus {
         return 'Đã đặt';
       case OrderStatus.preparing:
         return 'Đang chuẩn bị';
+      // "Đã ra món" thay cho "Đang phục vụ" (nhóm chốt 26/11): tránh trùng chữ với trạng thái
+      // BÀN "Đang phục vụ" (= bàn có khách), vì một bàn đang có khách có thể có đơn chưa ra món.
       case OrderStatus.serving:
-        return 'Đang phục vụ';
+        return 'Đã ra món';
       case OrderStatus.completed:
         return 'Hoàn thành';
       case OrderStatus.cancelled:
@@ -30,6 +32,10 @@ class Order {
   /// Mã đơn dễ đọc do server cấp (vd. `OD261008-8144`); đơn mẫu không có.
   final String? code;
   final String? tableNumber;
+
+  /// Khách thành viên đã gắn vào đơn (khách đặt bàn được nhận bàn, hoặc thu ngân đã quét mã).
+  /// Server tự giảm theo hạng của khách này khi thanh toán, kể cả khi thu ngân không quét lại.
+  final String? customerId;
   final String? customerName;
 
   /// Điểm thưởng khách đang có (chỉ có khi đơn gắn khách thành viên); thu ngân dùng khi thanh toán.
@@ -58,6 +64,7 @@ class Order {
     required this.id,
     this.code,
     this.tableNumber,
+    this.customerId,
     this.customerName,
     this.customerPoints = 0,
     required this.staffName,
@@ -83,6 +90,7 @@ class Order {
       id: json['id'].toString(),
       code: json['code'] as String?,
       tableNumber: json['table_number'] as String?,
+      customerId: json['customer_id']?.toString(),
       customerName: json['customer_name'] as String?,
       customerPoints: (json['customer_points'] as num?)?.toInt() ?? 0,
       staffName: json['staff_name'] as String? ?? 'Đặt qua app',
@@ -110,6 +118,16 @@ class Order {
 
   /// Có tiền cọc được khấu trừ hay không.
   bool get hasDeposit => depositAmount > 0;
+
+  /// Đơn còn mở (chưa hoàn thành / chưa hủy) — khớp OrderStatus::isOpen ở backend.
+  bool get isOpen =>
+      status == OrderStatus.placed || status == OrderStatus.preparing || status == OrderStatus.serving;
+
+  bool get isPaid => paymentStatus == PaymentStatus.paid;
+
+  /// Gọi thêm món tại bàn có được cộng vào CHÍNH đơn này không. Server chỉ cộng vào đơn còn mở
+  /// và chưa thanh toán (OrderController@store); ngược lại sẽ tạo một đơn (hóa đơn) mới.
+  bool get acceptsMoreItems => isOpen && !isPaid;
 
   int get totalQuantity => items.fold(0, (sum, i) => sum + i.quantity);
 }

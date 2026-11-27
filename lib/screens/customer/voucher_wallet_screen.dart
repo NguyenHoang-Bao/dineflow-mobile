@@ -48,9 +48,9 @@ class _VoucherWalletScreenState extends State<VoucherWalletScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-              child: const AppPageHeader(
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 0),
+              child: AppPageHeader(
                 title: 'Ví voucher',
                 subtitle: 'Đọc mã cho thu ngân khi thanh toán',
               ),

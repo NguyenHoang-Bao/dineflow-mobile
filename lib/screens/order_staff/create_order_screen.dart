@@ -9,6 +9,7 @@ import '../../data/mock_data.dart';
 import '../../data/order_repository.dart';
 import '../../models/food.dart';
 import '../../models/food_option.dart';
+import '../../models/order.dart';
 import '../../models/order_item.dart';
 import '../../models/table_model.dart';
 import '../../theme/app_colors.dart';
@@ -18,6 +19,9 @@ import '../../widgets/app_button.dart';
 import '../../widgets/app_header_band.dart';
 import '../../widgets/app_search_bar.dart';
 import '../../widgets/category_chip.dart';
+import '../../widgets/confirm_dialog.dart';
+import '../../widgets/live_data.dart';
+import '../../widgets/order_items_card.dart';
 import '../../widgets/quantity_stepper.dart';
 
 /// Màn hình Order món tại bàn: chọn món, size/topping, số lượng, ghi chú, gửi order.
@@ -66,13 +70,34 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     return matches.isEmpty ? null : matches.first;
   }
 
-  List<Food> get _filteredFoods {
+  /// Món khớp danh mục + từ khóa. Tìm không cần dấu: "com suon" ra "Cơm sườn nướng".
+  /// Gồm cả món tạm hết để nhân viên trả lời khách ngay; món tạm hết hiện mờ ở cuối, không chọn được.
+  List<Food> get _matchingFoods {
+    final key = AppFormatters.searchKey(_keyword);
     return MockData.foods.where((food) {
       final matchesCategory = _selectedCategoryId == null || food.categoryId == _selectedCategoryId;
-      final matchesKeyword =
-          _keyword.trim().isEmpty || food.name.toLowerCase().contains(_keyword.trim().toLowerCase());
-      return matchesCategory && matchesKeyword && food.isAvailable;
+      final matchesKeyword = key.isEmpty || AppFormatters.searchKey(food.name).contains(key);
+      return matchesCategory && matchesKeyword;
     }).toList();
+  }
+
+  /// Lý do bàn này không nhận order mới, hoặc null nếu được. Sơ đồ bàn đã không mở màn này cho
+  /// các bàn đó; kiểm tra lại ở đây vì dữ liệu bàn có thể đổi trong lúc đang chọn món
+  /// (server hiện chưa chặn order vào bàn khóa / bàn đã vô hiệu hóa).
+  String? _blockReason(TableModel? table) {
+    if (table == null) return null;
+    if (!table.isActive) return '${table.number} đã ngừng phục vụ, không nhận order.';
+    if (table.status == TableStatus.serving) return null; // gọi thêm cho khách đang ngồi
+    if (table.status == TableStatus.locked) {
+      return '${table.number} đang được Admin khóa tạm. Hãy chọn bàn khác hoặc nhờ Admin mở khóa.';
+    }
+    if (table.status == TableStatus.reserved) {
+      final r = table.nextReservation;
+      return '${table.number} đang giữ cho khách đặt'
+          '${r == null ? '' : ' lúc ${AppFormatters.time(r.dateTime)} (mã ${r.code})'}. '
+          'Hãy chọn bàn khác; khách đặt tới thì nhận bàn ở Lịch đặt bàn.';
+    }
+    return null;
   }
 
   /// Dòng của món KHÔNG có tùy chọn trong order đang tạo. Mỗi món chỉ có một dòng: chạm lại
@@ -164,24 +189,29 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
   }
 
   /// Hỏi lại trước khi rời màn hình khi order đang có món, tránh mất công nhập.
+  /// Nói rõ chỉ bỏ các món CHƯA GỬI (trước đây "Huỷ order" dễ hiểu nhầm là hủy đơn của bàn).
   Future<bool> _confirmDiscard() async {
     if (_draft.isEmpty) return true;
-    final discard = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Huỷ order đang tạo?'),
-        content:
-            Text('Order hiện có ${_draft.totalQuantity} món chưa gửi. Rời khỏi màn hình sẽ mất các món này.'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Tiếp tục order')),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text('Huỷ order', style: TextStyle(color: AppColors.error)),
-          ),
-        ],
-      ),
+    return showConfirmDialog(
+      context,
+      title: 'Bỏ các món chưa gửi?',
+      message: 'Có ${_draft.totalQuantity} món chưa gửi bếp. Rời màn hình sẽ mất các món này; '
+          'các món đã gửi trước đó của bàn vẫn giữ nguyên.',
+      confirmLabel: 'Bỏ món',
+      cancelLabel: 'Tiếp tục order',
+      destructive: true,
     );
-    return discard ?? false;
+  }
+
+  /// Xem lại toàn bộ món sắp gửi (món nằm rải rác theo danh mục nên khó đọc lại cho khách).
+  void _showReview() {
+    if (_draft.isEmpty) return;
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ReviewSheet(items: _draft.items, total: _draft.subtotal),
+    );
   }
 
   /// Gửi order lên server. Thành công: tải lại bàn + đơn rồi đóng màn; lỗi: giữ nguyên các món đã chọn.
@@ -192,9 +222,9 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
     // Lấy trước khi await để không dùng context sau khoảng chờ.
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    void say(String text) => messenger
+    void say(String text, {bool error = false}) => messenger
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(text)));
+      ..showSnackBar(SnackBar(content: Text(text), backgroundColor: error ? AppColors.error : null));
 
     try {
       final result = await OrderRepository.instance.create(tableId: widget.tableId, items: _draft.items);
@@ -204,23 +234,45 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       _draft.clear();
       navigator.pop();
     } on ApiException catch (e) {
-      say(e.message);
+      say(e.message, error: true);
+      // Lỗi thường do trạng thái bàn vừa đổi (vd khách đặt tới giờ) → tải lại để banner cập nhật.
+      unawaited(AppData.refresh({LiveSource.tables, LiveSource.orders}, force: true));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
+  /// Đơn hiện tại của bàn (có thể đã thanh toán / đã hoàn thành).
+  Order? _currentOrder(TableModel? table) =>
+      table?.currentOrderId == null ? null : MockData.findOrder(table!.currentOrderId!);
+
+  /// Server chỉ cộng món vào đơn còn mở và chưa thanh toán; ngược lại tạo đơn mới. Trước đây
+  /// màn này luôn ghi "thêm vào đơn #…" kể cả khi server sẽ tạo hóa đơn thứ hai.
   String? _subtitle(TableModel? table) {
     if (table == null) return null;
-    final order = table.currentOrderId != null ? MockData.findOrder(table.currentOrderId!) : null;
-    final target = order != null ? 'thêm vào đơn #${order.displayCode}' : 'đơn mới';
+    final order = _currentOrder(table);
+    final target = order == null
+        ? 'đơn mới'
+        : order.acceptsMoreItems
+            ? 'thêm vào đơn #${order.displayCode}'
+            : 'hóa đơn mới (đơn #${order.displayCode} ${order.isPaid ? 'đã thanh toán' : 'đã hoàn thành'})';
     return '${table.area} · ${table.capacity} khách · $target';
   }
 
   @override
   Widget build(BuildContext context) {
-    final foods = _filteredFoods;
+    // Dựng lại khi bàn / đơn đổi (vd khách đặt vừa tới giờ) để banner chặn luôn đúng.
+    return LiveData(
+      sources: const {LiveSource.tables, LiveSource.orders},
+      builder: (context, _) => _buildScreen(context),
+    );
+  }
+
+  Widget _buildScreen(BuildContext context) {
+    final foods = _matchingFoods;
     final table = _table;
+    final blockReason = _blockReason(table);
+    final currentOrder = _currentOrder(table);
 
     return PopScope(
       canPop: _draft.isEmpty,
@@ -275,16 +327,26 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                 ],
               ),
             ),
+            if (blockReason != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: _Banner(text: blockReason),
+              ),
             const SizedBox(height: 12),
-            Expanded(child: _buildFoodList(foods)),
-            _buildBottomBar(),
+            Expanded(child: _buildFoodList(foods, currentOrder)),
+            _buildBottomBar(blocked: blockReason != null),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildFoodList(List<Food> foods) {
+  Widget _buildFoodList(List<Food> foods, Order? currentOrder) {
+    final available = foods.where((f) => f.isAvailable).toList();
+    final soldOut = foods.where((f) => !f.isAvailable).toList();
+    // Món bàn đã gọi trước đó (cùng đơn sẽ được cộng thêm) — để khỏi gọi trùng.
+    final ordered = currentOrder != null && currentOrder.acceptsMoreItems ? currentOrder.items : const <OrderItem>[];
+
     if (foods.isEmpty) {
       return Center(
         child: Padding(
@@ -299,44 +361,83 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
       children: [
-        Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: AppColors.surface,
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Column(
-            children: [
-              for (var i = 0; i < foods.length; i++) ...[
-                if (i > 0) Divider(height: 1, thickness: 1, color: AppColors.border),
-                FadeSlideIn.staggered(
-                  index: i,
-                  offsetY: 8,
-                  child: foods[i].options.isEmpty
-                      ? _FoodRow(
-                          food: foods[i],
-                          line: _lineOf(foods[i]),
-                          onAdd: () => _addFood(foods[i]),
-                          onQuantityChanged: (q) => _setQuantity(foods[i], q),
-                          onEditNote: _editNote,
-                        )
-                      : _OptionFoodRow(
-                          food: foods[i],
-                          lines: _linesOf(foods[i]),
-                          onAdd: () => _addFood(foods[i]),
-                          onQuantityChanged: (line, q) => _draft.updateQuantity(line.id, q),
-                          onEditNote: _editNote,
-                        ),
-                ),
+        if (ordered.isNotEmpty) ...[
+          _OrderedSummary(items: ordered),
+          const SizedBox(height: 12),
+        ],
+        if (available.isNotEmpty)
+          Container(
+            clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < available.length; i++) ...[
+                  if (i > 0) Divider(height: 1, thickness: 1, color: AppColors.border),
+                  FadeSlideIn.staggered(
+                    index: i,
+                    offsetY: 8,
+                    child: available[i].options.isEmpty
+                        ? _FoodRow(
+                            food: available[i],
+                            line: _lineOf(available[i]),
+                            onAdd: () => _addFood(available[i]),
+                            onQuantityChanged: (q) => _setQuantity(available[i], q),
+                            onEditNote: _editNote,
+                          )
+                        : _OptionFoodRow(
+                            food: available[i],
+                            lines: _linesOf(available[i]),
+                            onAdd: () => _addFood(available[i]),
+                            onQuantityChanged: (line, q) => _draft.updateQuantity(line.id, q),
+                            onEditNote: _editNote,
+                          ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
-        ),
+        if (soldOut.isNotEmpty) ...[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+            child: Text('Tạm hết · ${soldOut.length} món',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppColors.textSecondary)),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: AppColors.surface.withValues(alpha: 0.6),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              children: [
+                for (var i = 0; i < soldOut.length; i++) ...[
+                  if (i > 0) Divider(height: 1, thickness: 1, color: AppColors.border),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(soldOut[i].name,
+                              style: TextStyle(
+                                  fontSize: 14.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        ),
+                        Text('Tạm hết',
+                            style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppColors.textSecondary)),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
 
-  Widget _buildBottomBar() {
+  Widget _buildBottomBar({required bool blocked}) {
     final empty = _draft.isEmpty;
     return Container(
       decoration: BoxDecoration(
@@ -350,29 +451,48 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
           child: Row(
             children: [
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      empty ? 'Chưa chọn món' : 'Tổng tiền · ${_draft.totalQuantity} món',
-                      style: TextStyle(fontSize: 12.5, color: AppColors.textSecondary),
-                    ),
-                    const SizedBox(height: 2),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: AnimatedValueText(
-                        AppFormatters.currency(_draft.subtotal),
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 22,
-                          color: AppColors.textPrimary,
-                          letterSpacing: -0.4,
+                // Chạm vào phần tổng tiền để xem lại toàn bộ món sắp gửi.
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: empty ? null : _showReview,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              empty ? 'Chưa chọn món' : '${_draft.totalQuantity} món · Xem lại',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                color: empty ? AppColors.textSecondary : AppColors.textPrimary,
+                                fontWeight: empty ? FontWeight.w400 : FontWeight.w700,
+                                decoration: empty ? null : TextDecoration.underline,
+                              ),
+                            ),
+                          ),
+                          if (!empty) Icon(Icons.expand_less_rounded, size: 18, color: AppColors.textPrimary),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: AnimatedValueText(
+                          AppFormatters.currency(_draft.subtotal),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 22,
+                            color: AppColors.textPrimary,
+                            letterSpacing: -0.4,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -382,11 +502,160 @@ class _CreateOrderScreenState extends State<CreateOrderScreen> {
                   icon: Icons.near_me_outlined,
                   dense: true,
                   isLoading: _submitting,
-                  onPressed: empty ? null : _submitOrder,
+                  onPressed: empty || blocked ? null : _submitOrder,
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dải cảnh báo đỏ nhạt: vì sao bàn này không nhận order.
+class _Banner extends StatelessWidget {
+  final String text;
+
+  const _Banner({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: AppColors.errorBg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.block_rounded, size: 18, color: AppColors.error),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(text, style: TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// "Bàn đã gọi": các món đã gửi của đơn đang mở, thu gọn mặc định.
+class _OrderedSummary extends StatefulWidget {
+  final List<OrderItem> items;
+
+  const _OrderedSummary({required this.items});
+
+  @override
+  State<_OrderedSummary> createState() => _OrderedSummaryState();
+}
+
+class _OrderedSummaryState extends State<_OrderedSummary> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final qty = widget.items.fold<int>(0, (sum, i) => sum + i.quantity);
+    final total = widget.items.fold<double>(0, (sum, i) => sum + i.total);
+    return Container(
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(16),
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+              child: Row(
+                children: [
+                  Icon(Icons.receipt_long_outlined, size: 18, color: AppColors.textSecondary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Bàn đã gọi: $qty món · ${AppFormatters.currency(total)}',
+                        style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+                  ),
+                  Icon(_open ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: AppColors.textSecondary),
+                ],
+              ),
+            ),
+          ),
+          if (_open)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  for (final i in widget.items)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        '${i.quantity}× ${i.foodName}'
+                        '${i.optionsLabel.isEmpty ? '' : ' (${i.optionsLabel})'}'
+                        '${i.note.trim().isEmpty ? '' : ' — ${i.note.trim()}'}',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.35),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Bảng xem lại các món sắp gửi: tên, size/topping, ghi chú, thành tiền.
+class _ReviewSheet extends StatelessWidget {
+  final List<OrderItem> items;
+  final double total;
+
+  const _ReviewSheet({required this.items, required this.total});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.75),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+              child: Text('Món sắp gửi bếp',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppColors.textPrimary)),
+            ),
+            Flexible(
+              child: ListView(
+                shrinkWrap: true,
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                children: [OrderItemsCard(items: items, quantityColor: AppColors.primaryLight)],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Row(
+                children: [
+                  Text('Tổng cộng', style: TextStyle(fontSize: 14, color: AppColors.textSecondary)),
+                  const Spacer(),
+                  Text(AppFormatters.currency(total),
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -421,27 +690,59 @@ class _NoteDialogState extends State<_NoteDialog> {
     super.dispose();
   }
 
+  /// Ghi chú hay dùng: chạm để thêm nhanh thay vì gõ (đang bận phục vụ, gõ có dấu chậm).
+  static const _quickNotes = ['Ít đá', 'Không đá', 'Ít ngọt', 'Ít cay', 'Không hành', 'Mang về'];
+
+  void _appendQuick(String note) {
+    final current = _ctrl.text.trim();
+    if (current.toLowerCase().contains(note.toLowerCase())) return;
+    final next = current.isEmpty ? note : '$current, ${note.toLowerCase()}';
+    if (next.length > 100) return;
+    _ctrl.value = TextEditingValue(text: next, selection: TextSelection.collapsed(offset: next.length));
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
       title: Text('Ghi chú: ${widget.foodName}'),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        maxLength: 100,
-        maxLines: 3,
-        minLines: 2,
-        textInputAction: TextInputAction.done,
-        decoration: const InputDecoration(
-          hintText: 'Vd: ít cay, không hành...',
-          counterText: '',
-        ),
-        onSubmitted: (_) => Navigator.pop(context, _ctrl.text),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _ctrl,
+            autofocus: true,
+            maxLength: 100,
+            maxLines: 3,
+            minLines: 2,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(
+              hintText: 'Vd: ít cay, không hành...',
+              counterText: '',
+            ),
+            onSubmitted: (_) => Navigator.pop(context, _ctrl.text),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              for (final note in _quickNotes)
+                ActionChip(
+                  label: Text(note, style: TextStyle(fontSize: 12.5, color: AppColors.textPrimary)),
+                  backgroundColor: AppColors.primaryLight,
+                  side: BorderSide(color: AppColors.border),
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _appendQuick(note),
+                ),
+            ],
+          ),
+        ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, widget.initialNote),
-          child: const Text('Huỷ'),
+          child: const Text('Hủy'),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _ctrl.text),

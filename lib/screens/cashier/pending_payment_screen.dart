@@ -5,12 +5,14 @@ import '../../data/app_data.dart';
 import '../../data/mock_data.dart';
 import '../../models/order.dart';
 import '../../theme/app_colors.dart';
+import '../../theme/status_visuals.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_animations.dart';
 import '../../widgets/app_button.dart';
 import '../../widgets/app_header_band.dart';
 import '../../widgets/empty_state.dart';
 import '../../widgets/live_data.dart';
+import '../../widgets/order_card.dart' show orderStatusVisual;
 import '../../widgets/status_badge.dart';
 
 /// Tab Chờ thanh toán: danh sách đơn cần thu ngân xử lý.
@@ -74,6 +76,7 @@ class _PendingOrderCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isProcessing = order.paymentStatus == PaymentStatus.pending;
+    final transferReceived = order.paymentStatus == PaymentStatus.paid;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
@@ -96,7 +99,9 @@ class _PendingOrderCard extends StatelessWidget {
               const SizedBox(width: 8),
               // "Đang xử lý" = viên nâu đen, "Chưa thanh toán" = viên trắng viền mảnh
               // (theo mockup) để hai trạng thái phân biệt rõ.
-              isProcessing
+              transferReceived
+                  ? StatusBadge(label: 'Đã nhận CK', color: AppColors.success, background: AppColors.successBg)
+                  : isProcessing
                   ? StatusBadge(label: 'Đang xử lý', color: AppColors.textOnDark, background: AppColors.ink)
                   : StatusBadge(
                       label: 'Chưa thanh toán',
@@ -106,13 +111,41 @@ class _PendingOrderCard extends StatelessWidget {
                     ),
             ],
           ),
+          // Bước bếp (mục 4, phương án A) + khách đặt bàn / thành viên: thu ngân biết đơn đã ra món
+          // chưa, và biết trước sẽ có trừ cọc, giảm hạng.
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              StatusBadge(
+                label: 'Bếp: ${orderStepShortLabel(order.status)}',
+                color: orderStatusVisual(order.status).color,
+                background: orderStatusVisual(order.status).background,
+              ),
+              if (order.customerId != null)
+                StatusBadge(
+                  label: '${order.reservationId != null ? 'Khách đặt bàn' : 'Thành viên'}: '
+                      '${order.customerName ?? 'khách hàng'}',
+                  color: AppColors.textPrimary,
+                  background: AppColors.primaryLight,
+                ),
+              if (order.hasDeposit)
+                StatusBadge(
+                  label: 'Đã cọc ${AppFormatters.currency(order.depositAmount)}',
+                  color: AppColors.success,
+                  background: AppColors.successBg,
+                ),
+            ],
+          ),
           const SizedBox(height: 6),
-          Text('Nhân viên order: ${order.staffName}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+          if (order.staffName.trim().isNotEmpty)
+            Text('Nhân viên order: ${order.staffName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           const SizedBox(height: 2),
-          Text(AppFormatters.timeDate(order.createdAt),
+          Text('Gọi lúc ${AppFormatters.time(order.createdAt)} · ${AppFormatters.relativeTime(order.createdAt).toLowerCase()}',
               style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
           const SizedBox(height: 10),
           Row(
@@ -121,6 +154,7 @@ class _PendingOrderCard extends StatelessWidget {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   alignment: Alignment.centerLeft,
+                  // Tạm tính (chưa trừ giảm giá / cọc — số thu thật hiện ở màn Thanh toán).
                   child: Text(AppFormatters.currency(order.subtotal),
                       style: TextStyle(
                         fontWeight: FontWeight.w800,
@@ -133,7 +167,7 @@ class _PendingOrderCard extends StatelessWidget {
               const SizedBox(width: 12),
               SizedBox(
                 width: 128,
-                child: AppButton(label: 'Thanh toán', dense: true, onPressed: onPay),
+                child: AppButton(label: transferReceived ? 'Xuất hóa đơn' : 'Thanh toán', dense: true, onPressed: onPay),
               ),
             ],
           ),

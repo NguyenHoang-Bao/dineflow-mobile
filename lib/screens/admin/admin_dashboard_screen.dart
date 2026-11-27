@@ -1,12 +1,14 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
-import '../../app/app_navigator.dart';
 import '../../app/routes.dart';
+import '../../core/api/api_exception.dart';
+import '../../data/admin_repository.dart';
 import '../../data/app_data.dart';
 import '../../data/mock_data.dart';
+import '../../data/reservation_repository.dart';
+import '../../models/reservation.dart';
 import '../../models/revenue.dart';
+import '../../models/table_model.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/formatters.dart';
 import '../../widgets/app_animations.dart';
@@ -14,6 +16,7 @@ import '../../widgets/live_data.dart';
 import '../../widgets/mock_bar_chart.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/stat_card.dart';
+import 'admin_more_screen.dart';
 
 /// Số cột của lưới thống kê theo bề ngang màn hình: điện thoại 2 cột,
 /// tablet/nửa cửa sổ desktop 3 cột, cửa sổ đủ rộng hiển thị cả 4 thẻ trên
@@ -24,231 +27,133 @@ int _statGridColumns(double width) {
   return 2;
 }
 
-/// Số cột của lưới "Quản lý nhanh" (5 mục) theo bề ngang màn hình.
-int _quickManageColumns(double width) {
-  if (width >= 900) return 5;
-  if (width >= 650) return 4;
-  return 3;
+/// Dashboard tổng quan của Admin.
+///
+/// Phần trên là tình hình **đang diễn ra** (bàn, đơn chờ thu, lượt đặt, đơn hủy hôm nay) —
+/// thứ quản lý cần nhìn trong giờ phục vụ. Phần dưới là doanh thu; chi tiết (món bán chạy,
+/// chọn khoảng ngày, xuất Excel) nằm ở tab Báo cáo nên không lặp lại ở đây.
+class AdminDashboardScreen extends StatefulWidget {
+  /// Chuyển sang tab Bàn / Báo cáo của khung Admin (null khi màn được mở riêng).
+  final VoidCallback? onOpenTables;
+  final VoidCallback? onOpenReports;
+
+  const AdminDashboardScreen({super.key, this.onOpenTables, this.onOpenReports});
+
+  @override
+  State<AdminDashboardScreen> createState() => _AdminDashboardScreenState();
 }
 
-/// Dashboard tổng quan của Admin.
-class AdminDashboardScreen extends StatelessWidget {
-  const AdminDashboardScreen({super.key});
+class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
+  /// Lượt đặt và đơn hủy trong hôm nay: không nằm trong kho dữ liệu chung nên tải riêng.
+  List<Reservation>? _reservations;
+  int? _cancelledCount;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadToday();
+  }
+
+  Future<void> _loadToday() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    // Mỗi phần lỗi thì chỉ phần đó hiện "—", không chặn cả Dashboard.
+    await Future.wait([
+      () async {
+        try {
+          final list = await ReservationRepository.instance.fetchForDate(today);
+          if (mounted) setState(() => _reservations = list);
+        } on ApiException {
+          // giữ số cũ
+        }
+      }(),
+      () async {
+        try {
+          final result = await AdminRepository.instance.fetchCancelledOrders(today);
+          if (mounted) setState(() => _cancelledCount = result.orders.length);
+        } on ApiException {
+          // giữ số cũ
+        }
+      }(),
+    ]);
+  }
 
   /// Số liệu lấy từ báo cáo của server, tự tải mới khi mở màn và khi kéo để làm mới.
   @override
   Widget build(BuildContext context) => LiveData(
-        sources: const {LiveSource.report},
+        sources: const {LiveSource.report, LiveSource.tables, LiveSource.orders},
         builder: _buildContent,
       );
 
-  /// "+12% so với hôm qua" / "-5% so với tuần trước"; null khi kỳ trước không có doanh thu để so.
-  static String? _trend(double current, double previous, String versus) {
-    final pct = ReportOverview.changePercent(current, previous);
-    if (pct == null) return null;
-    return '${pct >= 0 ? "+" : ""}$pct% $versus';
-  }
-
   Widget _buildContent(BuildContext context, Future<void> Function() refresh) {
     final report = MockData.report;
+    final now = DateTime.now();
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard quản trị'),
+        // Ngày nằm ngay dưới tiêu đề thay cho một dòng riêng trong danh sách.
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Tổng quan'),
+            Text('Hôm nay · ${AppFormatters.weekdayDate(now)}',
+                style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: AppColors.textSecondary)),
+          ],
+        ),
         actions: [
           IconButton(
             icon: Icon(Icons.logout_rounded, color: AppColors.error),
             tooltip: 'Đăng xuất',
-            onPressed: signOut,
+            onPressed: () => confirmAdminSignOut(context),
           ),
         ],
       ),
       body: SafeArea(
         top: false,
         child: RefreshIndicator(
-          onRefresh: refresh,
+          onRefresh: () => Future.wait([refresh(), _loadToday()]),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
             children: [
-              FadeSlideIn(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => GridView(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  // Dùng mainAxisExtent (chiều cao cố định) thay cho childAspectRatio:
-                  // chiều cao ô thống kê không còn phụ thuộc bề ngang màn hình nên
-                  // nội dung không bị tràn trên máy hẹp. Số cột co giãn theo
-                  // constraints.maxWidth để tận dụng cửa sổ desktop rộng.
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: _statGridColumns(constraints.maxWidth),
-                    mainAxisSpacing: 14,
-                    crossAxisSpacing: 14,
-                    mainAxisExtent: 158,
-                  ),
-                  children: [
-                    StatCard(
-                      label: 'Doanh thu hôm nay',
-                      value: AppFormatters.currency(report.todayRevenue),
-                      icon: Icons.payments_outlined,
-                      color: AppColors.success,
-                      trend: _trend(report.todayRevenue, report.yesterdayRevenue, 'so với hôm qua'),
-                      trendUp: report.todayRevenue >= report.yesterdayRevenue,
-                    ),
-                    StatCard(
-                      label: 'Doanh thu tuần này',
-                      value: AppFormatters.currency(report.weekRevenue),
-                      icon: Icons.calendar_view_week_outlined,
-                      color: AppColors.info,
-                      trend: _trend(report.weekRevenue, report.lastWeekRevenue, 'so với tuần trước'),
-                      trendUp: report.weekRevenue >= report.lastWeekRevenue,
-                    ),
-                    StatCard(
-                      label: 'Tổng đơn hôm nay',
-                      value: '${report.todayOrders}',
-                      icon: Icons.receipt_long_outlined,
-                      color: AppColors.primaryDark,
-                    ),
-                    StatCard(
-                      label: 'Khách thành viên hôm nay',
-                      value: '${report.todayMembers}',
-                      icon: Icons.people_outline,
-                      color: AppColors.warning,
-                    ),
-                  ],
-                ),
-                ),
-              ),
-              const SizedBox(height: 24),
+              // Doanh thu là số quản lý xem đầu tiên → một khối nổi bật thay cho 4 ô cùng cỡ.
+              FadeSlideIn(child: _RevenueHero(report: report, onOpenReports: widget.onOpenReports)),
+              const SizedBox(height: 20),
+              const FadeSlideIn(child: SectionHeader(title: 'Đang diễn ra')),
+              const SizedBox(height: 10),
+              FadeSlideIn(child: _statGrid(_operationCards(context))),
+              const SizedBox(height: 20),
               FadeSlideIn(
                 delay: const Duration(milliseconds: 80),
                 child: Container(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 8, 14),
                   decoration: BoxDecoration(
                     color: AppColors.surface,
                     borderRadius: BorderRadius.circular(18),
                     border: Border.all(color: AppColors.border),
-                    boxShadow: AppColors.softShadow,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Doanh thu 7 ngày gần đây',
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15)),
-                      const SizedBox(height: 16),
-                      MockBarChart(data: report.revenueByDay),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              FadeSlideIn(
-                delay: const Duration(milliseconds: 140),
-                child: SectionHeader(title: 'Món bán chạy · ${report.topFoodsDays} ngày'),
-              ),
-              const SizedBox(height: 12),
-              FadeSlideIn(
-                delay: const Duration(milliseconds: 180),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14),
-                  decoration: BoxDecoration(
-                    color: AppColors.surface,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppColors.border),
-                  ),
-                  child: Column(
-                    children: [
-                      // Lấy tối đa 3 món nhưng không vượt quá số món đang có,
-                      // tránh lỗi vượt chỉ số khi danh sách ngắn hoặc rỗng.
-                      for (int i = 0; i < math.min(3, report.topFoods.length); i++) ...[
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          child: Row(
-                            children: [
-                              Text('${i + 1}.',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Text(report.topFoods[i].foodName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(fontSize: 13.5)),
-                              ),
-                              const SizedBox(width: 8),
-                              Text('${report.topFoods[i].soldQuantity} đã bán',
-                                  style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
-                            ],
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text('Doanh thu 7 ngày',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.w800, fontSize: 15, color: AppColors.textPrimary)),
                           ),
-                        ),
-                        if (i != math.min(3, report.topFoods.length) - 1) const Divider(height: 1),
-                      ],
-                      if (report.topFoods.isEmpty)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Text('Chưa có dữ liệu món bán chạy',
-                              style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                        ),
+                          if (widget.onOpenReports != null)
+                            TextButton(
+                              onPressed: widget.onOpenReports,
+                              child: const Text('Xem báo cáo'),
+                            ),
+                        ],
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: MockBarChart(data: report.revenueByDay, height: 140),
+                      ),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const FadeSlideIn(
-                delay: Duration(milliseconds: 220),
-                child: SectionHeader(title: 'Quản lý nhanh'),
-              ),
-              const SizedBox(height: 12),
-              LayoutBuilder(
-                builder: (context, constraints) => GridView.count(
-                crossAxisCount: _quickManageColumns(constraints.maxWidth),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 12,
-                childAspectRatio: 1,
-                children: [
-                  _QuickManage(
-                      icon: Icons.people_alt_outlined,
-                      label: 'Tài khoản',
-                      imageUrl: 'https://cdn-icons-png.flaticon.com/512/3135/3135715.png',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminAccounts)),
-                  _QuickManage(
-                      icon: Icons.menu_book_outlined,
-                      label: 'Thực đơn',
-                      imageUrl: 'https://cdn-icons-png.flaticon.com/512/2771/2771406.png',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminMenu)),
-                  _QuickManage(
-                      icon: Icons.table_bar_outlined,
-                      label: 'Bàn & khu vực',
-                      imageUrl: 'https://cdn-icons-png.flaticon.com/512/1046/1046784.png',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminTables)),
-                  _QuickManage(
-                      icon: Icons.local_offer_outlined,
-                      label: 'Khuyến mãi',
-                      imageUrl: 'https://cdn-icons-png.flaticon.com/512/3514/3514441.png',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminPromotions)),
-                  _QuickManage(
-                      icon: Icons.bar_chart_outlined,
-                      label: 'Báo cáo',
-                      imageUrl: 'https://cdn-icons-png.flaticon.com/512/2920/2920277.png',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminReports)),
-                  _QuickManage(
-                      icon: Icons.badge_outlined,
-                      label: 'Báo cáo ca',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminShifts)),
-                  _QuickManage(
-                      icon: Icons.event_note_rounded,
-                      label: 'Lịch đặt bàn',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.reservationList)),
-                  _QuickManage(
-                      icon: Icons.cancel_outlined,
-                      label: 'Đơn đã hủy',
-                      onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminCancelledOrders)),
-                ]
-                    .asMap()
-                    .entries
-                    .map((e) => FadeSlideIn.staggered(index: e.key, offsetY: 10, child: e.value))
-                    .toList(),
                 ),
               ),
             ],
@@ -257,67 +162,153 @@ class AdminDashboardScreen extends StatelessWidget {
       ),
     );
   }
+
+  /// Lưới ô "Đang diễn ra": 2 cột trên điện thoại, nhiều cột hơn trên màn rộng; ô thấp gọn
+  /// (biểu tượng nằm cùng hàng với con số) thay cho ô cao 150.
+  Widget _statGrid(List<Widget> children) => LayoutBuilder(
+        builder: (context, constraints) => GridView(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: _statGridColumns(constraints.maxWidth),
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            mainAxisExtent: 98,
+          ),
+          children: children,
+        ),
+      );
+
+  List<Widget> _operationCards(BuildContext context) {
+    final tables = MockData.tables;
+    final serving = tables.where((t) => t.status == TableStatus.serving).length;
+    final reserved = tables.where((t) => t.status == TableStatus.reserved).length;
+    final empty = tables.where((t) => t.status == TableStatus.empty).length;
+
+    final pending = MockData.pendingPaymentOrders;
+    final pendingTotal = pending.fold<double>(0, (sum, o) => sum + o.subtotal);
+
+    final now = DateTime.now();
+    final upcoming = (_reservations ?? const <Reservation>[])
+        .where((r) => r.status == ReservationStatus.upcoming)
+        .toList()
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+    final next = upcoming.where((r) => r.dateTime.isAfter(now.subtract(const Duration(minutes: 15)))).firstOrNull;
+
+    return [
+      StatCard(
+        compact: true,
+        label: 'Bàn có khách',
+        value: '$serving/${tables.length}',
+        icon: Icons.table_bar_outlined,
+        color: AppColors.tableServing,
+        caption: '$reserved đặt trước · $empty trống',
+        onTap: widget.onOpenTables,
+      ),
+      StatCard(
+        compact: true,
+        label: 'Đơn chờ thanh toán',
+        value: '${pending.length}',
+        icon: Icons.point_of_sale_outlined,
+        color: AppColors.warning,
+        caption: pending.isEmpty ? 'Không có đơn nào' : 'Tạm tính ${AppFormatters.currency(pendingTotal)}',
+      ),
+      StatCard(
+        compact: true,
+        label: 'Lượt đặt sắp tới',
+        value: _reservations == null ? '—' : '${upcoming.length}',
+        icon: Icons.event_note_outlined,
+        color: AppColors.info,
+        caption: next == null ? 'Chưa có lượt nào' : 'Gần nhất ${AppFormatters.time(next.dateTime)} · ${next.tableNumber}',
+        // Quay lại từ lịch đặt (có thể vừa hủy lượt) thì đếm lại.
+        onTap: () => Navigator.of(context).pushNamed(AppRoutes.reservationList).then((_) => _loadToday()),
+      ),
+      StatCard(
+        compact: true,
+        label: 'Đơn hủy hôm nay',
+        value: _cancelledCount == null ? '—' : '$_cancelledCount',
+        icon: Icons.cancel_outlined,
+        color: AppColors.error,
+        caption: 'Lý do và người hủy',
+        onTap: () => Navigator.of(context).pushNamed(AppRoutes.adminCancelledOrders).then((_) => _loadToday()),
+      ),
+    ];
+  }
 }
 
-class _QuickManage extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  /// URL ảnh tùy chọn. Khi có, hiển thị ảnh thay cho icon;
-  /// nếu ảnh lỗi tải hoặc null thì vẫn dùng icon dự phòng.
-  final String? imageUrl;
 
-  const _QuickManage({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.imageUrl,
-  });
+/// Khối doanh thu nổi bật: hôm nay (so với hôm qua), tuần này (so với tuần trước), số đơn và
+/// khách thành viên hôm nay. Nền nâu đậm như thẻ ca của Thu ngân để nổi lên đầu trang.
+class _RevenueHero extends StatelessWidget {
+  final ReportOverview report;
+  final VoidCallback? onOpenReports;
+
+  const _RevenueHero({required this.report, this.onOpenReports});
 
   @override
   Widget build(BuildContext context) {
-    return PressScale(
-      onTap: onTap,
-      scale: 0.94,
-      child: Container(
-        padding: const EdgeInsets.all(10),
-        decoration: BoxDecoration(
-          color: AppColors.surface,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppColors.border),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            // Hiển thị ảnh từ URL nếu có, fallback về icon nếu lỗi
-            if (imageUrl != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.network(
-                  imageUrl!,
-                  width: 36,
-                  height: 36,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Icon(icon, color: AppColors.textPrimary, size: 22),
-                  // Trên web: nếu trang ảnh không cho phép CORS thì hiện bằng thẻ <img> của trình duyệt.
-                  webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
-                ),
-              )
-            else
-              Icon(icon, color: AppColors.textPrimary, size: 22),
-            const SizedBox(height: 8),
-            Flexible(
-              child: Text(
-                label,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600),
+    final muted = AppColors.textOnDark.withValues(alpha: 0.72);
+    Widget mini(String label, String value) => Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: TextStyle(fontSize: 12, color: muted)),
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(value,
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textOnDark)),
+              ),
+            ],
+          ),
+        );
+
+    final card = Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+      decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(22)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(child: Text('Doanh thu hôm nay', style: TextStyle(fontSize: 13, color: muted))),
+              if (onOpenReports != null) Icon(Icons.chevron_right_rounded, color: muted),
+            ],
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: CountUpText(
+              value: report.todayRevenue,
+              formatter: (v) => AppFormatters.currency(v.round()),
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                color: AppColors.primary,
+                letterSpacing: -0.6,
               ),
             ),
-          ],
-        ),
+          ),
+          // Không ghi "-55%": so một phần ngày hôm nay với CẢ ngày hôm qua thì sáng nào cũng báo
+          // giảm. Hiện số của kỳ trước để quản lý tự so.
+          Text('Hôm qua: ${AppFormatters.currency(report.yesterdayRevenue)}',
+              style: TextStyle(fontSize: 12.5, color: muted)),
+          const SizedBox(height: 14),
+          Divider(height: 1, color: AppColors.textOnDark.withValues(alpha: 0.15)),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              mini('Tuần này', AppFormatters.currency(report.weekRevenue)),
+              mini('Tuần trước', AppFormatters.currency(report.lastWeekRevenue)),
+              mini('Đơn · Thành viên', '${report.todayOrders} · ${report.todayMembers}'),
+            ],
+          ),
+        ],
       ),
     );
+    if (onOpenReports == null) return card;
+    return PressScale(onTap: onOpenReports!, scale: 0.98, child: card);
   }
 }

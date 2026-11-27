@@ -143,7 +143,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
                               food: food,
                               onTap: () => Navigator.of(context)
                                   .pushNamed(AppRoutes.customerFoodDetail, arguments: food.id),
-                              onAdd: () => addOneFood(AppCart.customer, food),
+                              onAdd: () => addFoodOrPickOptions(context, AppCart.customer, food),
                             ),
                           );
                         },

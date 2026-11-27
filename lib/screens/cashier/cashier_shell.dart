@@ -24,6 +24,10 @@ class CashierShell extends StatefulWidget {
     return true;
   }
 
+  /// Tab cần mở khi quay về khung từ một màn được đẩy lên trên (vd bấm "Hoàn tất" ở hóa đơn
+  /// vừa thu → về lại Chờ thanh toán để thu đơn tiếp theo, giữ nguyên trạng thái các tab).
+  static final tabRequest = ValueNotifier<CashierTab?>(null);
+
   @override
   State<CashierShell> createState() => _CashierShellState();
 }
@@ -56,7 +60,21 @@ class _CashierShellState extends State<CashierShell> with SingleTickerProviderSt
   ];
 
   @override
+  void initState() {
+    super.initState();
+    CashierShell.tabRequest.addListener(_onTabRequest);
+  }
+
+  void _onTabRequest() {
+    final tab = CashierShell.tabRequest.value;
+    if (tab == null) return;
+    CashierShell.tabRequest.value = null;
+    _selectTab(tab.index);
+  }
+
+  @override
   void dispose() {
+    CashierShell.tabRequest.removeListener(_onTabRequest);
     _fadeController.dispose();
     super.dispose();
   }

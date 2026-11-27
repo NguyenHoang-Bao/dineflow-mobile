@@ -11,6 +11,7 @@ import '../../models/invoice.dart';
 import '../../models/reservation.dart';
 import '../../theme/app_colors.dart';
 import '../../widgets/app_animations.dart';
+import 'booking_confirmation_screen.dart';
 
 /// Phiên đặt bàn qua app của Khách hàng, gồm 3 bước:
 /// **Đặt bàn → Đặt món trước (có thể bỏ qua) → Thanh toán**.
@@ -61,9 +62,60 @@ class BookingCheckout {
     _active = true;
   }
 
+  /// Tỉ lệ cọc khi đặt món trước (nhóm chốt 26/11: cọc 50%).
+  static const depositRate = 0.5;
+
+  /// Tiền cọc khách chuyển khi đặt món trước: 50% tiền món, làm tròn LÊN 100đ. Đúng công thức
+  /// `Reservation::calculateDeposit` ở backend để số khách chuyển khớp số server ghi nhận (trước
+  /// đây app bắt chuyển 100% tiền món trong khi server chỉ ghi 50% là cọc → khách trả hai lần).
+  static double depositFor(double preOrderTotal) =>
+      preOrderTotal <= 0 ? 0 : ((preOrderTotal * depositRate) / 100).ceilToDouble() * 100;
+
+  /// Tiền cọc của phiên hiện tại (theo các món đang chọn).
+  double get deposit => depositFor(preOrder.subtotal);
+
+  /// Bản lượt đặt này trên server (null nếu không tải được hoặc không tìm thấy).
+  Future<Reservation?> fetchServerCopy() async {
+    final id = _reservation?.id;
+    if (id == null) return null;
+    try {
+      final list = await ReservationRepository.instance.fetchMine();
+      return list.where((r) => r.id == id).firstOrNull;
+    } on ApiException {
+      return null;
+    }
+  }
+
+  /// Server đã xác nhận lượt đặt (vd SePay nhận tiền cọc nhưng app chưa kịp biết vì mất mạng):
+  /// kết thúc phiên bằng bản của server, KHÔNG hủy.
+  void finishConfirmed(Reservation confirmed) {
+    MockData.upsertReservation(confirmed);
+    preOrder.clear();
+    _active = false;
+  }
+
+  /// Lượt đặt trên server đã được xác nhận (không còn ở trạng thái giữ bàn).
+  static bool isConfirmedOnServer(Reservation? r) =>
+      r != null && r.status == ReservationStatus.upcoming && !r.isHeld;
+
+  /// Hủy an toàn khi khách thoát / hết giờ: hỏi server trước. Nếu lượt đã được xác nhận (đã nhận
+  /// cọc) thì KHÔNG hủy — trước đây app vẫn hủy, và theo quy định giữ cọc khi khách hủy thì khách
+  /// mất tiền mà không có bàn. Trả về bản đã xác nhận để nơi gọi mở màn thành công; null = đã hủy.
+  Future<Reservation?> releaseSafely() async {
+    if (!isActive) return null;
+    final server = await fetchServerCopy();
+    if (isConfirmedOnServer(server)) {
+      finishConfirmed(server!);
+      return server;
+    }
+    release();
+    return null;
+  }
+
   /// Huỷ lượt giữ bàn (hết giờ hoặc khách thoát): hiện "đã huỷ" ngay trên máy và báo server nhả bàn.
   /// Báo server chạy nền; nếu thất bại (mất mạng) thì server cũng tự nhả khi hết hạn giữ bàn.
   /// Các món đã chọn vẫn được giữ lại để khách đặt lại không phải chọn từ đầu.
+  /// Gọi qua [releaseSafely], trừ khi đã biết chắc server chưa xác nhận.
   void release() {
     if (!isActive) return;
     final reservation = _reservation!;
@@ -139,9 +191,15 @@ mixin BookingHoldTimer<T extends StatefulWidget> on State<T> {
     if (_handlingExpiry) return;
     _handlingExpiry = true;
     _ticker?.cancel();
-    BookingCheckout.instance.release();
-
     final navigator = Navigator.of(context);
+    final confirmed = await BookingCheckout.instance.releaseSafely();
+    if (!mounted) return;
+    if (confirmed != null) {
+      // Đã nhận cọc ngay trước khi hết giờ → lượt đặt vẫn còn, mở màn thành công.
+      BookingConfirmationScreen.open(navigator, confirmed);
+      return;
+    }
+
     await showDialog<void>(
       context: context,
       barrierDismissible: false,

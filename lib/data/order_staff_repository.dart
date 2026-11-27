@@ -28,16 +28,24 @@ class OrderStaffRepository {
   ///
   /// Với mỗi bàn nguồn, gọi `POST /tables/{source}/merge` để server chuyển
   /// tất cả món từ đơn nguồn sang đơn đích, sau đó giải phóng bàn nguồn.
+  ///
+  /// Lỗi ở bàn thứ n thì các bàn trước đã gộp xong (server không hoàn tác); màn Gộp bàn gọi
+  /// [mergeOne] từng bàn để báo được bàn nào đã gộp.
   Future<void> mergeIntoTable(
     String targetTableId, {
     required List<String> sourceTableIds,
   }) async {
     for (final sourceId in sourceTableIds) {
-      await ApiClient.instance.post(
-        '/tables/$sourceId/merge',
-        body: {'target_table_id': targetTableId},
-      );
+      await mergeOne(sourceId, targetTableId: targetTableId);
     }
+  }
+
+  /// Gộp một bàn nguồn [sourceTableId] vào bàn đích [targetTableId].
+  Future<void> mergeOne(String sourceTableId, {required String targetTableId}) async {
+    await ApiClient.instance.post(
+      '/tables/$sourceTableId/merge',
+      body: {'target_table_id': targetTableId},
+    );
   }
 
   // ── Đơn hàng ────────────────────────────────────────────────────────────────

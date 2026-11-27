@@ -31,6 +31,24 @@ class BookingConfirmationScreen extends StatelessWidget {
     this.paymentLabel,
   });
 
+  /// Mở màn thành công cho lượt đặt [r] đã được server xác nhận, lấy số món và tiền cọc từ chính
+  /// bản của server (không dùng số app tự tính) rồi xóa các màn đặt bàn phía sau.
+  static void open(NavigatorState navigator, Reservation r) {
+    final deposit = r.isDepositPaid ? (r.depositAmount ?? 0) : 0.0;
+    navigator.pushAndRemoveUntil(
+      MaterialPageRoute(
+        settings: const RouteSettings(name: AppRoutes.customerBookingConfirmation),
+        builder: (_) => BookingConfirmationScreen(
+          reservation: r,
+          preOrderCount: r.preOrderQuantity,
+          paidAmount: deposit,
+          paymentLabel: deposit > 0 ? 'Chuyển khoản SePay' : null,
+        ),
+      ),
+      (route) => route.settings.name == AppRoutes.customerHome || route.isFirst,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     var order = 1;
@@ -169,11 +187,21 @@ class BookingConfirmationScreen extends StatelessWidget {
                                 LabeledValueRow(
                                   icon: Icons.payments_outlined,
                                   iconInTile: true,
-                                  label: 'Thanh toán',
+                                  label: 'Đã cọc (50%)',
                                   value: paidAmount! > 0
                                       ? '${AppFormatters.currency(paidAmount!)} · $paymentLabel'
                                       : 'Không cần trả trước',
                                 ),
+                                // Phần còn lại trả khi đến quán (thu ngân trừ cọc vào hóa đơn).
+                                if (paidAmount! > 0 && reservation.preOrderTotal > paidAmount!) ...[
+                                  const Divider(height: 24),
+                                  LabeledValueRow(
+                                    icon: Icons.storefront_outlined,
+                                    iconInTile: true,
+                                    label: 'Còn lại trả tại quán',
+                                    value: AppFormatters.currency(reservation.preOrderTotal - paidAmount!),
+                                  ),
+                                ],
                               ],
                             ],
                           ),
